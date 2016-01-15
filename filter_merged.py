@@ -126,6 +126,7 @@ class Namegroup(object):
         """Returns true if group hit an MEI"""
 
         #Tags used for characterizing an MEI namegroup.
+        #If an alignment in the group matches a tag, the tag is set to that alignment.
         #MUU and AUU are MEI Unique-Unique and Anchor Unique-Unique
         MUU1,MUU2,AUU1,AUU2=False,False,False,False
         #UR and RU are Repeat-Unique and Unique-Repeat
@@ -200,6 +201,9 @@ class Namegroup(object):
 
         #If both sides of a UU pair map to MEI, remove.
         if MUU1 and MUU2:
+            #UNLESS 
+            # if (SR1 and SL2) or (SR2 and SL1):
+            #     return True
             return False
 
         #If UR pair, keep
