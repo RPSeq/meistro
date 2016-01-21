@@ -54,7 +54,7 @@ fi
 ###############
 
 #extract candidate reads for realingment to MEI library
-sambamba view -t 4 -f bam -l 0 $INPUT_BAM | python ${SCRIPTS_DIR}/extract_candidates.py -a >(samtools view -b - > ${OUTPUT}.anchors.bam) -f - -c 25 -oc 7 > ${OUTPUT}.candidates.fq
+sambamba view -t 4 -f bam -l 0 $INPUT_BAM | python ${SCRIPTS_DIR}/extract_candidates.py -a >(samtools view -b - > ${OUTPUT}.anchors.bam) -f - -c 20 -oc 7 > ${OUTPUT}.candidates.fq
 
 #realing the candidates to the MEI library
 MosaikBuild -q ${OUTPUT}.candidates.fq -st illumina -out ${OUTPUT}.dat -quiet && \
@@ -75,8 +75,14 @@ python ./filter_merged.py -i ${OUTPUT}.merged.bam -o /dev/stdout -m ${OUTPUT}.me
 
 
 #################
-## messing around with bedtools cluster ##
 
+bamToBed -cigar -i ${OUTPUT}.filtered.bam | paste - <(samtools view ${OUTPUT}.filtered.bam \
+    | vawk '{ for(i = 12; i <= NF; i++) { if($i ~ /^ME/) {print $i;} } }' ) \
+        | bedtools sort | bedtools cluster -d 350 \
+            | bedtools intersect -v -a - -b ../repmask/nchr.SLOP90.repmask_hg19_Alu.L1.SVA.ERV.bed > ${OUTPUT}.intersect_clusters.bed
+
+#with intersection against repmask features:
 # bamToBed -cigar -i test.filtered.bam | paste - <(samtools view test.filtered.bam \
 #     | vawk '{ for(i = 12; i <= NF; i++) { if($i ~ /^ME/) {print $i;} } }' ) \
-#     | bedtools sort | bedtools cluster -d 350 | grep L1 | grep -e 'L1' | less
+#         | bedtools sort | bedtools cluster -d 350 \
+#             | bedtools intersect -v -a - -b ../repmask/nchr.SLOP90.repmask_hg19_Alu.L1.SVA.ERV.bed > intersect_clusters.bed
