@@ -281,7 +281,7 @@ def check_pairs(al1, in_bam, is_clip):
         anc = sam_al(al1, in_bam).sam_str(1)
 
     #elif is clipped read but no pair signal:
-    elif is_clip:
+    if is_clip:
         fq = fastq_str(al1, is_clip)
         anc = sam_al(al1, in_bam).sam_str(1)
 

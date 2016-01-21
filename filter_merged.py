@@ -190,6 +190,7 @@ class Namegroup(object):
         if len(self.anchors) > 0 and self.mei:
             #if we have mei and anchor, return true.
             for anc in self.anchors:
+
                 tags = anc.opt("TY").split(",")
                 mei_name = self.bam.getrname(self.mei.rname)
                 mei_pos = self.mei.pos
@@ -200,7 +201,7 @@ class Namegroup(object):
                     mei_ori = "-"
                 else:
                     mei_ori = "+"
-                anc.setTag("ME", ",".join([mei_name,mei_tags,str(mei_pos),mei_ori,mei_cigar,str(mei_qual)]))
+                anc.setTag("ME", ",".join([mei_name,self.mei.qname,mei_tags,str(mei_pos),mei_ori,mei_cigar,str(mei_qual)]))
                 #anc.rnext = self.mei.rname
                 #anc.mpos = self.mei.pos
                 anc.tlen = 0
