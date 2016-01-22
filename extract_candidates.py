@@ -138,7 +138,9 @@ def extract_candidates(bamfile, is_sam, anchors_out, fastq_out, clip_len, single
 
     #iterate over the als
     for al in in_bam:
-
+        anchor = False
+        fq_str = False
+        is_clip = False
         #check if the batches need to be printed
         if len(anchor_batch) >= batchsize:
             anchors_out.write("".join(anchor_batch))
@@ -156,14 +158,6 @@ def extract_candidates(bamfile, is_sam, anchors_out, fastq_out, clip_len, single
         if al.is_secondary or al.is_duplicate:
             continue
 
-        #check if clipped read (al gets tag added and is_clip returns True)
-        al, is_clip = check_clip(al, in_bam, clip_len, max_opp_clip)
-
-        #need to look at read pairs first, THEN clips (like i did the first time)
-        #   if is_clip:
-            #anchor_batch.append(sam_al(al, in_bam).sam_str(1))
-            #fq_batch.append(fastq_str(al, is_clip))
-
         #check if part of discordant pair.
         #should add zscore test for reads mapped to close/far together 
         #(and not use proper pair flag)
@@ -172,16 +166,20 @@ def extract_candidates(bamfile, is_sam, anchors_out, fastq_out, clip_len, single
             (not al.is_proper_pair) or (al.mapq == 0 and al.opt('MQ') > 0):
 
             #use check pairs to determine which side to align (or both)
-            p_fq, p_anc = check_pairs(al, in_bam, is_clip)
+            fq_str, anchor = check_pairs(al, in_bam)
 
-            if p_fq:
-                fq_batch.append(p_fq)
-            if p_anc:
-                anchor_batch.append(p_anc)
+            if fq_str:
+                fq_batch.append(fq_str)
+            if anchor: 
+                al = anchor
 
-        elif is_clip:
-            anchor_batch.append(sam_al(al, in_bam).sam_str(1))
+        al, is_clip = check_clip(al, in_bam, clip_len, max_opp_clip, anchor)
+
+        if is_clip:
             fq_batch.append(fastq_str(al, is_clip))
+
+        if anchor or is_clip:
+            anchor_batch.append(sam_al(al, in_bam).sam_str(1))
 
 
     #after finishing, write the remaining items in the batches.
@@ -242,72 +240,56 @@ def fastq_str(al, is_clip=False):
     #return the fastq string, including the tags as a comment.
     return "@"+name+" TY:Z:"+tags+"\n"+seq+"\n+\n"+quals+"\n"
 
-def check_pairs(al1, in_bam, is_clip):
+def check_pairs(al1, in_bam):
     """Determines if a read from a pair is a UU, UR, or RU."""
     #default return values are False
     anc, fq = False, False
     #if this read has been marked as a clipper,
-    if is_clip:
-        #get the clipper TY tag (ASL or ASR)
-        tag=al1.opt("TY")
 
     #get mate mapq
     mate_mapq = al1.opt('MQ')
 
     #if both are unique:
     if al1.mapq > 0 and mate_mapq > 0:
-        #realign both
-        if is_clip:
-            #set TY to UU,split tag
-            al1.setTag("TY","UU"+","+tag)
-        else:
-            #or just UU if no clip.
-            al1.setTag("TY","UU")
-
+        al1.setTag("TY","UU")
         fq = fastq_str(al1)
-        anc = sam_al(al1, in_bam).sam_str(1)
+        anc = al1
 
     #if this al is not unique,
     elif al1.mapq == 0 and mate_mapq > 0:
         #realign this al
-        if is_clip:
-            al1.setTag("TY","RU"+","+tag)
-            anc = sam_al(al1, in_bam).sam_str(1)
-        else:
-            al1.setTag("TY","RU")
-            anc = False
-
+        al1.setTag("TY","RU")
+        anc = False
         fq = fastq_str(al1)
     
     #if other al is not unique,
     elif al1.mapq > 0 and mate_mapq == 0:
         #realign other al, not this one (unless clipped).
-        if is_clip:
-            al1.setTag("TY","UR"+","+tag)
-            fq = fastq_str(al1)
-        else:
-            al1.setTag("TY","UR")
-            fq = False
-        
-        anc = sam_al(al1, in_bam).sam_str(1)
+        al1.setTag("TY","UR")
+        fq = False
+        anc = al1
 
     return fq, anc
 
-def check_clip(al, in_bam, clip_len, max_opp_clip):
+def check_clip(al, in_bam, clip_len, max_opp_clip, disc_pair):
     """Checks a given alignment for clipped bases on one end""" 
     cigar = al.cigar
 
     if (al.mapq == 0 or len(cigar)) < 2:
         return al, False
 
+    if disc_pair:
+        tag = al.opt("TY")
+
     #if side=="L":
     #Clipped on L side
     if cigar[0][0] == 4 and cigar[0][1] >= clip_len:
         #if opposite is not clipped more than max opposite clip len, write for realignment
         if cigar[-1][0] != 4 or (cigar[-1][0] == 4 and cigar[-1][1] <= max_opp_clip):
-            # al.seq = al.seq[:al.qstart]
-            # al.qual = al.qual[:al.qstart]
-            al.setTag("TY","ASL")
+            if disc_pair:
+                al.setTag("TY",tag+",ASL")
+            else:
+                al.setTag("TY","ASL")
             return al, True
 
     #elif side=="R":
@@ -315,9 +297,10 @@ def check_clip(al, in_bam, clip_len, max_opp_clip):
     elif cigar[-1][0] == 4 and cigar[-1][1] >= clip_len:
     #if opposite is not clipped more than max opposite clip len, write for realignment
         if cigar[0][0] != 4 or (cigar[0][0] == 4 and cigar[0][1] <= max_opp_clip):
-            # al.seq = al.seq[al.qend:]
-            # al.qual = al.qual[al.qend:]
-            al.setTag("TY","ASR")
+            if disc_pair:
+                al.setTag("TY",tag+",ASR")
+            else:
+                al.setTag("TY","ASR")
             return al, True
 
     return al, False

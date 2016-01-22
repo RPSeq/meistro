@@ -55,7 +55,7 @@ fi
 ###############
 
 #extract candidate reads for realingment to MEI library
-sambamba view -t 4 -f bam -l 0 $INPUT_BAM | python ${SCRIPTS_DIR}/extract_candidates.py -a >(samtools view -b - > ${OUTPUT}.anchors.bam) -f - -c 20 -oc 7 > ${OUTPUT}.candidates.fq
+sambamba view -t 4 -f bam -l 0 $INPUT_BAM | head -n 1000000 | python ${SCRIPTS_DIR}/extract_candidates.py -a >(samtools view -b - > ${OUTPUT}.anchors.bam) -f - -c 20 -oc 7 > ${OUTPUT}.candidates.fq
 
 #realing the candidates to the MEI library
 MosaikBuild -q ${OUTPUT}.candidates.fq -st illumina -out ${OUTPUT}.dat -quiet && \
