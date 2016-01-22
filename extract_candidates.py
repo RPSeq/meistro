@@ -159,6 +159,11 @@ def extract_candidates(bamfile, is_sam, anchors_out, fastq_out, clip_len, single
         #check if clipped read (al gets tag added and is_clip returns True)
         al, is_clip = check_clip(al, in_bam, clip_len, max_opp_clip)
 
+        #need to look at read pairs first, THEN clips (like i did the first time)
+        #   if is_clip:
+            #anchor_batch.append(sam_al(al, in_bam).sam_str(1))
+            #fq_batch.append(fastq_str(al, is_clip))
+
         #check if part of discordant pair.
         #should add zscore test for reads mapped to close/far together 
         #(and not use proper pair flag)
@@ -166,12 +171,18 @@ def extract_candidates(bamfile, is_sam, anchors_out, fastq_out, clip_len, single
             (al.is_unmapped != al.mate_is_unmapped) or \
             (not al.is_proper_pair) or (al.mapq == 0 and al.opt('MQ') > 0):
 
-            #use write pairs to determine which side to align (or both)
+            #use check pairs to determine which side to align (or both)
             p_fq, p_anc = check_pairs(al, in_bam, is_clip)
-            if p_anc:
-                anchor_batch.append(p_anc)
+
             if p_fq:
                 fq_batch.append(p_fq)
+            if p_anc:
+                anchor_batch.append(p_anc)
+
+        elif is_clip:
+            anchor_batch.append(sam_al(al, in_bam).sam_str(1))
+            fq_batch.append(fastq_str(al, is_clip))
+
 
     #after finishing, write the remaining items in the batches.
     anchors_out.write("".join(anchor_batch))
@@ -187,8 +198,8 @@ def reverse_complement(sequence):
     complement = maketrans("ACTGactg", "TGACtgac") #define translation table for DNA
     return sequence[::-1].translate(complement)  #return the reversed and translated sequence
 
-def fastq_str(al, is_clip):
-    """Returns a fastq string of the given alignment"""
+def fastq_str(al, is_clip=False):
+    """Returns a fastq string of the given BAM record"""
     seq = al.seq
     quals = al.qual
     name = al.qname
@@ -232,7 +243,7 @@ def fastq_str(al, is_clip):
     return "@"+name+" TY:Z:"+tags+"\n"+seq+"\n+\n"+quals+"\n"
 
 def check_pairs(al1, in_bam, is_clip):
-
+    """Determines if a read from a pair is a UU, UR, or RU."""
     #default return values are False
     anc, fq = False, False
     #if this read has been marked as a clipper,
@@ -253,7 +264,7 @@ def check_pairs(al1, in_bam, is_clip):
             #or just UU if no clip.
             al1.setTag("TY","UU")
 
-        fq = fastq_str(al1, is_clip)
+        fq = fastq_str(al1)
         anc = sam_al(al1, in_bam).sam_str(1)
 
     #if this al is not unique,
@@ -266,29 +277,24 @@ def check_pairs(al1, in_bam, is_clip):
             al1.setTag("TY","RU")
             anc = False
 
-        fq = fastq_str(al1, is_clip)
+        fq = fastq_str(al1)
     
     #if other al is not unique,
     elif al1.mapq > 0 and mate_mapq == 0:
         #realign other al, not this one (unless clipped).
         if is_clip:
             al1.setTag("TY","UR"+","+tag)
-            fq = fastq_str(al1, is_clip)
+            fq = fastq_str(al1)
         else:
             al1.setTag("TY","UR")
             fq = False
         
         anc = sam_al(al1, in_bam).sam_str(1)
 
-    #elif is clipped read but no pair signal:
-    if is_clip:
-        fq = fastq_str(al1, is_clip)
-        anc = sam_al(al1, in_bam).sam_str(1)
-
     return fq, anc
-    
-def check_clip(al, in_bam, clip_len, max_opp_clip):
 
+def check_clip(al, in_bam, clip_len, max_opp_clip):
+    """Checks a given alignment for clipped bases on one end""" 
     cigar = al.cigar
 
     if (al.mapq == 0 or len(cigar)) < 2:
