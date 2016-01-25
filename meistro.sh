@@ -55,15 +55,13 @@ fi
 ###############
 
 #extract candidate reads for realingment to MEI library
-sambamba view -t 4 -f bam -l 0 $INPUT_BAM | head -n 1000000 | python ${SCRIPTS_DIR}/extract_candidates.py -a >(samtools view -b - > ${OUTPUT}.anchors.bam) -f - -c 20 -oc 7 > ${OUTPUT}.candidates.fq
+sambamba view -t 4 -f bam -l 0 $INPUT_BAM | python ${SCRIPTS_DIR}/extract_candidates.py -a >(samtools view -b - > ${OUTPUT}.anchors.bam) -f - -c 20 -oc 7 -R mosaik > ${OUTPUT}.candidates.fq
 
 #realing the candidates to the MEI library
 MosaikBuild -q ${OUTPUT}.candidates.fq -st illumina -out ${OUTPUT}.dat -quiet && \
 MosaikAligner -in ${OUTPUT}.dat -out ${OUTPUT}.realigned -ia ${IA}.dat -hs 9 -mmp 0.1 -act 20 -p 8 -j ${IA}_hs9 -annpe ${ANN}/2.1.26.pe.100.0065.ann -annse ${ANN}/2.1.26.se.100.005.ann -quiet
 
-#get only the realigned reads that actually hit MEIs and also grab their candidate type tags (taken from the FASTQ generated earlier)
-cat <(samtools view -H ${OUTPUT}.realigned.bam) <( zjoin -a <(samtools view -F 4 ${OUTPUT}.realigned.bam) -b <(grep "^@ERR" ${OUTPUT}.candidates.fq | sed -e 's/ /\t/g' -e 's/@//g') | cut -f 1-15,17 ) \
-    | samtools view -b - > ${OUTPUT}.hits.bam
+samtools view -F 4 ${OUTPUT}.realigned.bam -h | vawk '{ if ($0 !~ /^@/) { split($1,a,":"); $1 = a[1]; $0=$0"\tTY:Z:"a[2] } print $0}' | samtools view -b - > ${OUTPUT}.hits.bam
 
 #merge the hit reads with the anchors
 samtools merge - ${OUTPUT}.anchors.bam ${OUTPUT}.hits.bam | samtools sort -n - ${OUTPUT}.merged
@@ -74,13 +72,12 @@ samtools view ${OUTPUT}.realigned.bam  -H | grep "^@SQ" | cut -f 2 | sed -e 's/S
 #filter the merged bam for anchor-mei pairs or splitters.
 python ./filter_merged.py -i ${OUTPUT}.merged.bam -o /dev/stdout -m ${OUTPUT}.mei_refnames.txt | samtools view -b - > ${OUTPUT}.filtered.bam
 
-
 #################
 
-bamToBed -cigar -i ${OUTPUT}.filtered.bam | paste - <(samtools view ${OUTPUT}.filtered.bam \
-    | vawk '{ for(i = 12; i <= NF; i++) { if($i ~ /^ME/) {print $i;} } }' ) \
-        | bedtools sort | bedtools cluster -d 350 \
-            | bedtools intersect -v -a - -b $REPMASK > ${OUTPUT}.intersect_clusters.bed
+# bamToBed -cigar -i ${OUTPUT}.filtered.bam | paste - <(samtools view ${OUTPUT}.filtered.bam \
+#     | vawk '{ for(i = 12; i <= NF; i++) { if($i ~ /^ME/) {print $i;} } }' ) \
+#         | bedtools sort | bedtools cluster -d 350 \
+#             | bedtools intersect -v -a - -b $REPMASK > ${OUTPUT}.intersect_clusters.bed
 
 #with intersection against repmask features:
 # bamToBed -cigar -i test.filtered.bam | paste - <(samtools view test.filtered.bam \

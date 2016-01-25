@@ -49,8 +49,6 @@ def filter_merged(bamfile, is_sam, out_bam, mei_names):
     filtered = []
     group = Namegroup(in_bam, meis)
 
-
-
     #sys.stderr.write("Filtering...\n")
     for al in in_bam:
         if al.rname < 0:
@@ -61,7 +59,7 @@ def filter_merged(bamfile, is_sam, out_bam, mei_names):
             hit = group.process()
             #if the group hit an MEI, append to filtered list.
             if hit:
-                filtered.extend(group.anchors)
+                filtered.extend(group.als)
             #create a new namegroup
             group = Namegroup(in_bam, meis, al)
 
@@ -115,8 +113,9 @@ class Namegroup(object):
         self.bam = in_bam
         self.als = []
         self.anchors = []
-        self.mei = False
+        self.meis = []
         self.mei_rnames = meis
+        self.uu_mei = [False, False]
 
         if al:
             self.name = al.qname.split("_")[0]
@@ -149,63 +148,41 @@ class Namegroup(object):
             if al.rname < 0:
                 continue
             if not al.is_secondary: #ignore secondary hits for now
-                #check for both UUs aligned to MEI
-                if 'UU' in tags:
-                    #if its an MEI alignment, and another doesn't exist,
-                    #keep it.
-                    if self.bam.getrname(al.rname) in self.mei_rnames:
-                        if not self.mei:
-                            self.mei = al
-                        #if we've already seen an mei UU alignment,
-                        #both sides of the UU pair have mapped to the MEI.
-                        else:
-                            return False
-                    else:
-                        self.anchors.append(al)
-
-                elif any(x in tags for x in ['SL','SR','RU']):
-                    self.mei = al
-                #check for anchor aligned tags
-                elif any(x in tags for x in ['ASL','ASR','UR']):
+                if self.bam.getrname(al.rname) in self.mei_rnames:
+                    self.meis.append(al)
+                else:
                     self.anchors.append(al)
 
-        # check for anchor ref chrom discrepancies 
-        # if there are multiple anchor reads in the group.
-        #     discard if there are mismatches.
-        if len(self.anchors) > 1:
-            rname = self.anchors[0].rname
-            for anch in self.anchors[1:]:
-                if anch.rname != rname:
-                    return False
+        if len(self.anchors) >= 1 and len(self.meis) >= 1:
+            for mei in self.meis:
+                num = int(al.qname.split("_")[1])
+                if mei.opt("TY") == "UU":
+                    self.uu_mei[num-1]=True
+            if all(self.uu_mei):
+                return False
+            return True
 
-        #some (known) cases left to account for:
-        # UU/UU-Split.
-        #       First UU isn't informative, only the split realignment matters.
-        #       Should probably remove the UU-only anchor (leaving only the split anchor)
-        # UU-anchor/UU-mei:
-        #       This one is probably fine for now, may want to relabel though.
-        # RU/UR-split:
 
         #if we have anchor(s) and an mei, time to add the mei info to the anchors.
-        if len(self.anchors) > 0 and self.mei:
-            #if we have mei and anchor, return true.
-            for anc in self.anchors:
+        # if len(self.anchors) > 0 and self.mei:
+        #     #if we have mei and anchor, return true.
+        #     for anc in self.anchors:
 
-                tags = anc.opt("TY").split(",")
-                mei_name = self.bam.getrname(self.mei.rname)
-                mei_pos = self.mei.pos
-                mei_cigar = self.mei.cigarstring
-                mei_qual = self.mei.mapq
-                mei_tags = ";".join(self.mei.opt("TY").split(","))
-                if self.mei.is_reverse:
-                    mei_ori = "-"
-                else:
-                    mei_ori = "+"
-                anc.setTag("ME", ",".join([mei_name,self.mei.qname,mei_tags,str(mei_pos),mei_ori,mei_cigar,str(mei_qual)]))
-                #anc.rnext = self.mei.rname
-                #anc.mpos = self.mei.pos
-                anc.tlen = 0
-            return True
+        #         tags = anc.opt("TY").split(",")
+        #         mei_name = self.bam.getrname(self.mei.rname)
+        #         mei_pos = self.mei.pos
+        #         mei_cigar = self.mei.cigarstring
+        #         mei_qual = self.mei.mapq
+        #         mei_tags = ";".join(self.mei.opt("TY").split(","))
+        #         if self.mei.is_reverse:
+        #             mei_ori = "-"
+        #         else:
+        #             mei_ori = "+"
+        #         anc.setTag("ME", ",".join([mei_name,self.mei.qname,mei_tags,str(mei_pos),mei_ori,mei_cigar,str(mei_qual)]))
+        #         #anc.rnext = self.mei.rname
+        #         #anc.mpos = self.mei.pos
+        #         anc.tlen = 0
+        #     return True
 
         return False
 

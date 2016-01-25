@@ -102,7 +102,7 @@ class sam_al(object):
         return
 
 #main loop function
-def extract_candidates(bamfile, is_sam, anchors_out, fastq_out, clip_len, single_only, max_opp_clip=7):
+def extract_candidates(bamfile, is_sam, anchors_out, fastq_out, clip_len, single_only, realign, max_opp_clip=7):
     # set input file
     if bamfile == None:
         if is_sam:
@@ -166,7 +166,7 @@ def extract_candidates(bamfile, is_sam, anchors_out, fastq_out, clip_len, single
             (not al.is_proper_pair) or (al.mapq == 0 and al.opt('MQ') > 0):
 
             #use check pairs to determine which side to align (or both)
-            fq_str, anchor = check_pairs(al, in_bam)
+            fq_str, anchor = check_pairs(al, in_bam, realign)
 
             if fq_str:
                 fq_batch.append(fq_str)
@@ -176,7 +176,7 @@ def extract_candidates(bamfile, is_sam, anchors_out, fastq_out, clip_len, single
         al, is_clip = check_clip(al, in_bam, clip_len, max_opp_clip, anchor)
 
         if is_clip:
-            fq_batch.append(fastq_str(al, is_clip))
+            fq_batch.append(fastq_str(al, realign, is_clip))
 
         if anchor or is_clip:
             anchor_batch.append(sam_al(al, in_bam).sam_str(1))
@@ -196,7 +196,7 @@ def reverse_complement(sequence):
     complement = maketrans("ACTGactg", "TGACtgac") #define translation table for DNA
     return sequence[::-1].translate(complement)  #return the reversed and translated sequence
 
-def fastq_str(al, is_clip=False):
+def fastq_str(al, realign, is_clip=False):
     """Returns a fastq string of the given BAM record"""
     seq = al.seq
     quals = al.qual
@@ -213,17 +213,19 @@ def fastq_str(al, is_clip=False):
             #if a tag is ASR or ASL, strip the A (fastq is NOT the anchor)
             #and pull the clipped portion of the read
             if tags[i] == "ASL":
-                tags[i]=tags[i][1:]
+                # tags[i]=tags[i][1:]
+                tags=tags[i][1:]
                 seq = seq[:al.qstart]
                 quals = quals[:al.qstart]
 
             elif tags[i] == "ASR":
-                tags[i]=tags[i][1:]
+                # tags[i]=tags[i][1:]
+                tags=tags[i][1:]
                 seq = seq[al.qend:]
                 quals = quals[al.qend:]
 
         #put the tags back together
-        tags=",".join(tags)
+        #tags=",".join(tags)
 
     #reverse the sequence if al is reversed
     if al.is_reverse:
@@ -238,9 +240,12 @@ def fastq_str(al, is_clip=False):
 
 
     #return the fastq string, including the tags as a comment.
-    return "@"+name+" TY:Z:"+tags+"\n"+seq+"\n+\n"+quals+"\n"
+    if realign == "bwamem":
+        return "@"+name+" TY:Z:"+tags+"\n"+seq+"\n+\n"+quals+"\n"
+    elif realign == "mosaik":
+        return "@"+name+":"+tags+"\n"+seq+"\n+\n"+quals+"\n"
 
-def check_pairs(al1, in_bam):
+def check_pairs(al1, in_bam, realign):
     """Determines if a read from a pair is a UU, UR, or RU."""
     #default return values are False
     anc, fq = False, False
@@ -252,7 +257,7 @@ def check_pairs(al1, in_bam):
     #if both are unique:
     if al1.mapq > 0 and mate_mapq > 0:
         al1.setTag("TY","UU")
-        fq = fastq_str(al1)
+        fq = fastq_str(al1, realign)
         anc = al1
 
     #if this al is not unique,
@@ -260,7 +265,7 @@ def check_pairs(al1, in_bam):
         #realign this al
         al1.setTag("TY","RU")
         anc = False
-        fq = fastq_str(al1)
+        fq = fastq_str(al1, realign)
     
     #if other al is not unique,
     elif al1.mapq > 0 and mate_mapq == 0:
@@ -342,6 +347,9 @@ description: Extract candidates for MEI re-alignment")
     parser.add_argument('-oc', '--opclip', metavar='LEN', required=False, type=int, help='Max opposite clip length')
     parser.add_argument('-s', '--single', required=False, action='store_true', help='Input single-ended')
     parser.add_argument('-S', required=False, action='store_true', help='Input is SAM format')
+    parser.add_argument('-R', '--realign', required=True, type=str, help='Options are [mosaik, bwamem]')
+    
+
 
     # parse the arguments
     args = parser.parse_args()
@@ -366,7 +374,7 @@ class Usage(Exception):
 def main():
     args = get_args()
 
-    extract_candidates(args.input, args.S, args.anchors, args.fastq, args.clip, args.single, args.opclip)
+    extract_candidates(args.input, args.S, args.anchors, args.fastq, args.clip, args.single, args.realign, args.opclip)
 
 if __name__ == "__main__":
     try:
