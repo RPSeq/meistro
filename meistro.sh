@@ -86,5 +86,6 @@ bamToBed -cigar -i ${OUTPUT}.filtered.bam | paste - <(samtools view ${OUTPUT}.fi
         | bedtools sort | bedtools cluster -d 350 \
             | bedtools intersect -v -a - -b repmask/nchr.SLOP90.repmask_hg19_Alu.L1.SVA.ERV.bed > ${OUTPUT}.intersect_clusters.bed
 
+cat ${OUTPUT}.intersect_clusters.bed | python get_clusters.py > ${OUTPUT}.filtered_clusters.bed
 #print only TY tag (and fields 1 and 6) from BAM
 #awk '{for (i=1;i<=NF;i++) {if ($i ~/^TY:Z/) print $1"\t"$6"\t"$i;}}'

@@ -141,7 +141,7 @@ class Namegroup(object):
         ori = "+"
         if mei.is_reverse:
             ori = "-"
-        RAtag += mei.opt("TY")+":"+",".join([self.bam.getrname(mei.rname), str(mei.pos), mei.cigarstring, ori]) + ";"
+        RAtag += mei.opt("TY")+":"+",".join([mei.qname, self.bam.getrname(mei.rname), str(mei.pos), mei.cigarstring, ori]) + ";"
         return RAtag
 
     def process(self):
