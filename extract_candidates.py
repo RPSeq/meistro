@@ -150,10 +150,6 @@ def extract_candidates(bamfile, is_sam, anchors_out, fastq_out, clip_len, single
             fastq_out.write("".join(fq_batch))
             del fq_batch[:]
 
-        #get read name and mate read name
-        rname = in_bam.getrname(al.rname)
-        mrname = in_bam.getrname(al.mrnm)
-
         #skip secondary or duplicate alignments
         if al.is_secondary or al.is_duplicate:
             continue
