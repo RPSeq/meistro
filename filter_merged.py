@@ -42,12 +42,11 @@ def filter_merged(bamfile, is_sam, out_bam, mei_names):
     # header+="\n".join(in_bam.text.split("\n")[1:])
 
     #get meinames from file
-    meis = set(line.strip() for line in mei_names)
-
+    mei_names = set(line.strip() for line in mei_names)
 
     #assuming name-sorted bam
     filtered = []
-    group = Namegroup(in_bam, meis)
+    group = Namegroup(in_bam, mei_names)
 
     #sys.stderr.write("Filtering...\n")
     for al in in_bam:
@@ -56,15 +55,13 @@ def filter_merged(bamfile, is_sam, out_bam, mei_names):
         #if qname doesnt match current group:
         if not group.add(al):
             #pass the group to filtering function
-            hit = group.process()
+            hits = group.process()
             #if the group hit an MEI, append to filtered list.
-            if hit:
-                filtered.extend(group.als)
+            if hits:
+                for hit in hits:
+                    out_bam.write(hit)
             #create a new namegroup
-            group = Namegroup(in_bam, meis, al)
-
-    for al in filtered:
-        out_bam.write(al)
+            group = Namegroup(in_bam, mei_names, al)
 
     #sys.stderr.write("Done!\n")
 
@@ -78,7 +75,7 @@ def mismatch(al):
     length = len(al.seq)
     percent = NM/(float(length))
     return percent
-        
+  
 def get_args():
     parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter, description="\
 bamgroupreads.py\n\
@@ -108,14 +105,15 @@ description: Group BAM file by read IDs without sorting")
 class Namegroup(object):
     """Class for containing reads of the same name"""
 
-    def __init__(self, in_bam, meis, al=False):
+    def __init__(self, in_bam, mei_names, al=False):
 
         self.bam = in_bam
         self.als = []
         self.anchors = []
         self.meis = []
-        self.mei_rnames = meis
+        self.mei_rnames = mei_names
         self.uu_mei = [False, False]
+        self.filtered_anchors = []
 
         if al:
             self.name = al.qname.split("_")[0]
@@ -137,12 +135,23 @@ class Namegroup(object):
         self.als.append(al)
         return True
 
+    def update_RA(self, RAtag, mei):
+        if not RAtag:
+            RAtag = ""
+        ori = "+"
+        if mei.is_reverse:
+            ori = "-"
+        RAtag += mei.opt("TY")+":"+",".join([self.bam.getrname(mei.rname), str(mei.pos), mei.cigarstring, ori]) + ";"
+        return RAtag
+
     def process(self):
         """Returns true if group hit an MEI"""
 
         for al in self.als:
-            #get name and read #
+            #get name and read pair number
             name, num = al.qname.split("_")
+            num = int(num)
+            #get tags
             tags = al.opt("TY").split(",")
             #some untig als have non-spec rname indices
             if al.rname < 0:
@@ -150,41 +159,75 @@ class Namegroup(object):
             if not al.is_secondary: #ignore secondary hits for now
                 if self.bam.getrname(al.rname) in self.mei_rnames:
                     self.meis.append(al)
+                    if tags[0] == "UU":
+                        self.uu_mei[num-1] = True
                 else:
                     self.anchors.append(al)
+                    # if tags[0] == "UU":
+                    #     self.uu_anchor[num-1] = al
 
-        if len(self.anchors) >= 1 and len(self.meis) >= 1:
-            for mei in self.meis:
-                num = int(al.qname.split("_")[1])
-                if mei.opt("TY") == "UU":
-                    self.uu_mei[num-1]=True
-            if all(self.uu_mei):
-                return False
-            return True
+        #if both UUs aligned to mei, discard
+        if all(self.uu_mei):
+            return False
 
+        for anchor in self.anchors:
+            mnum = False
+            uu_hit = False
+            RAtag = False
+            anum = int(anchor.qname.split("_")[1])
+            #if anchor is a UU only
+            tags = anchor.opt("TY").split(",")
+            if "UU" in tags:
+                #look for UU realignment in meis
+                for mei in self.meis:
+                    if mei.opt("TY") == "UU":
+                        mnum = int(mei.qname.split("_")[1])
+                        #if its the mate of the UU, report it and add the new tag.
+                        if mnum != anum:
+                            uu_hit = True
+                            RAtag = self.update_RA(RAtag, mei)
+                            break
 
-        #if we have anchor(s) and an mei, time to add the mei info to the anchors.
-        # if len(self.anchors) > 0 and self.mei:
-        #     #if we have mei and anchor, return true.
-        #     for anc in self.anchors:
+                if not uu_hit:
+                    #delete the UU tag if there are other tags, no longer relevant
+                    if len(tags) > 1:
+                        del tags[0]
 
-        #         tags = anc.opt("TY").split(",")
-        #         mei_name = self.bam.getrname(self.mei.rname)
-        #         mei_pos = self.mei.pos
-        #         mei_cigar = self.mei.cigarstring
-        #         mei_qual = self.mei.mapq
-        #         mei_tags = ";".join(self.mei.opt("TY").split(","))
-        #         if self.mei.is_reverse:
-        #             mei_ori = "-"
-        #         else:
-        #             mei_ori = "+"
-        #         anc.setTag("ME", ",".join([mei_name,self.mei.qname,mei_tags,str(mei_pos),mei_ori,mei_cigar,str(mei_qual)]))
-        #         #anc.rnext = self.mei.rname
-        #         #anc.mpos = self.mei.pos
-        #         anc.tlen = 0
-        #     return True
+            if "UR" in tags:
+                for mei in self.meis:
+                    if mei.opt("TY") == "RU":
+                        mnum = int(mei.qname.split("_")[1])
+                        if mnum != anum:
+                            RAtag = self.update_RA(RAtag, mei)
+                            break
+
+            if 'ASL' in tags:
+                hit = False
+                for mei in self.meis:
+                    if mei.opt("TY") == 'SL':
+                        mnum = int(mei.qname.split("_")[1])
+                        if mnum == anum:
+                            RAtag = self.update_RA(RAtag, mei)
+                            hit = True
+                            break
+
+            elif 'ASR' in tags:
+                for mei in self.meis:
+                    if mei.opt("TY") == 'SR':
+                        mnum = int(mei.qname.split("_")[1])
+                        if mnum == anum:
+                            RAtag = self.update_RA(RAtag, mei)
+                            break
+
+            if RAtag:
+                anchor.setTag("RA", RAtag)
+                self.filtered_anchors.append(anchor)
+
+        if len(self.filtered_anchors) > 0:
+            return self.filtered_anchors
 
         return False
+
 
 # ============================================
 # driver

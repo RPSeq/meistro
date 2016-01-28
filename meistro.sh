@@ -22,6 +22,7 @@ FILE_DIR=$(dirname $INPUT_BAM)
 
 #Mosaik Files
 IA="/gscmnt/gc2719/halllab/users/rsmith/transposons/Mobster/Mobster-0.1.6/mobiome/54_mobiles_inclHERVK"
+#IA="assembly/human_youngTE_revisedPolyA"
 ANN="/gscmnt/gc2719/halllab/users/rsmith/transposons/Mobster/Mobster-0.1.6/MOSAIK"
 REPMASK="/gscmnt/gc2719/halllab/users/rsmith/git/meistro/repmask/nchr.SLOP90.repmask_hg19_Alu.L1.SVA.ERV.bed"
 
@@ -54,8 +55,12 @@ fi
 ### MOSAIK ###
 ###############
 
+## If MOSIAK reference hasnt been built:
+#MosaikBuild -fr ${IA}.fa -oa ${IA}.dat
+#MosaikJump -ia ${IA}.dat -hs 9 -out ${IA}_hs9
+
 #extract candidate reads for realingment to MEI library
-sambamba view -t 4 -f bam -l 0 $INPUT_BAM | python ${SCRIPTS_DIR}/extract_candidates.py -a >(samtools view -b - > ${OUTPUT}.anchors.bam) -f - -c 20 -oc 7 -R mosaik > ${OUTPUT}.candidates.fq
+sambamba view -t 4 -f bam -l 0 $INPUT_BAM | python ${SCRIPTS_DIR}/extract_candidates.py -a >(samtools view -b - > ${OUTPUT}.anchors.bam) -f - -c 20 -oc 10 -R mosaik > ${OUTPUT}.candidates.fq
 
 #realing the candidates to the MEI library
 MosaikBuild -q ${OUTPUT}.candidates.fq -st illumina -out ${OUTPUT}.dat -quiet && \
@@ -74,16 +79,12 @@ python ./filter_merged.py -i ${OUTPUT}.merged.bam -o /dev/stdout -m ${OUTPUT}.me
 
 #################
 
-# bamToBed -cigar -i ${OUTPUT}.filtered.bam | paste - <(samtools view ${OUTPUT}.filtered.bam \
-#     | vawk '{ for(i = 12; i <= NF; i++) { if($i ~ /^ME/) {print $i;} } }' ) \
-#         | bedtools sort | bedtools cluster -d 350 \
-#             | bedtools intersect -v -a - -b $REPMASK > ${OUTPUT}.intersect_clusters.bed
 
 #with intersection against repmask features:
-# bamToBed -cigar -i test.filtered.bam | paste - <(samtools view test.filtered.bam \
-#     | vawk '{ for(i = 12; i <= NF; i++) { if($i ~ /^ME/) {print $i;} } }' ) \
-#         | bedtools sort | bedtools cluster -d 350 \
-#             | bedtools intersect -v -a - -b ../repmask/nchr.SLOP90.repmask_hg19_Alu.L1.SVA.ERV.bed > intersect_clusters.bed
+bamToBed -cigar -i ${OUTPUT}.filtered.bam | paste - <(samtools view ${OUTPUT}.filtered.bam \
+    | vawk '{ for(i = 12; i <= NF; i++) { if($i ~ /^RA/) {print $i;} } }' ) \
+        | bedtools sort | bedtools cluster -d 350 \
+            | bedtools intersect -v -a - -b repmask/nchr.SLOP90.repmask_hg19_Alu.L1.SVA.ERV.bed > ${OUTPUT}.intersect_clusters.bed
 
 #print only TY tag (and fields 1 and 6) from BAM
 #awk '{for (i=1;i<=NF;i++) {if ($i ~/^TY:Z/) print $1"\t"$6"\t"$i;}}'
