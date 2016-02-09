@@ -1,4 +1,6 @@
 from collections import OrderedDict
+import sys
+
 
 infile = open("/dev/stdin", 'r')
 outfile = open("/dev/stdout", 'w')
@@ -12,9 +14,11 @@ for line in infile:
         hits[id].append(line)
 
 for id in hits:
-    if len(hits[id]) > 2:
+    if len(hits[id]) >= 2:
         for item in hits[id]:
             outfile.write(item)
+
+
 
 infile.close()
 outfile.close()

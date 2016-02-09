@@ -7,9 +7,11 @@
 import pysam
 import sys
 import argparse
+from itertools import izip
 from intervaltree import IntervalTree
 from argparse import RawTextHelpFormatter
 from string import maketrans
+from ssw_wrap import Aligner
 
 __author__ = "Ryan Smith (ryanpsmith@wustl.edu) with code by Colby Chiang (cc2qe@virginia.edu)"
 __version__ = "$Revision: 0.0.1 $"
@@ -102,7 +104,13 @@ class sam_al(object):
         return
 
 #main loop function
-def extract_candidates(bamfile, is_sam, anchors_out, fastq_out, clip_len, single_only, realign, max_opp_clip=7):
+def extract_candidates(bamfile, 
+                        is_sam, 
+                        anchors_out, 
+                        fastq_out, 
+                        clip_len, 
+                        single_only, 
+                        max_opp_clip=7):
     # set input file
     if bamfile == None:
         if is_sam:
@@ -119,9 +127,10 @@ def extract_candidates(bamfile, is_sam, anchors_out, fastq_out, clip_len, single
     header = "@HD\tVN:1.3\tSO:unsorted\n"
     header+="\n".join(in_bam.text.split("\n")[1:])
     
-    #open and print header
+    #open and print header for anchor and polyA bams
     anchors_out = open(anchors_out, 'w')
     anchors_out.write(header)
+
 
     #allow - input argument
     if fastq_out == "-":
@@ -132,6 +141,17 @@ def extract_candidates(bamfile, is_sam, anchors_out, fastq_out, clip_len, single
     #to be written to output file in batches to reduce IO
     anchor_batch = []
     fq_batch = []
+    pA_batch = []
+
+    #create striped smith-waterman aligner object
+    #calibrated so gaps are not allowed, only mismatches.
+    polyA_ssw = Aligner("A"*clip_len,
+                match=4,
+                mismatch=8,
+                gap_open=900,
+                gap_extend=600,
+                report_secondary=False,
+                report_cigar=True)
 
     #this sets the batch size
     batchsize = 1000000
@@ -139,8 +159,8 @@ def extract_candidates(bamfile, is_sam, anchors_out, fastq_out, clip_len, single
     #iterate over the als
     for al in in_bam:
         anchor = False
-        fq_str = False
         is_clip = False
+        fastq_p, fastq_s = False, False
         #check if the batches need to be printed
         if len(anchor_batch) >= batchsize:
             anchors_out.write("".join(anchor_batch))
@@ -162,17 +182,34 @@ def extract_candidates(bamfile, is_sam, anchors_out, fastq_out, clip_len, single
             (not al.is_proper_pair) or (al.mapq == 0 and al.opt('MQ') > 0):
 
             #use check pairs to determine which side to align (or both)
-            fq_str, anchor = check_pairs(al, in_bam, realign)
+            fastq_p, anchor = check_pairs(al, in_bam)
 
-            if fq_str:
-                fq_batch.append(fq_str)
+            if fastq_p:
+                fq_batch.append(fastq_p)
             if anchor: 
                 al = anchor
 
         al, is_clip = check_clip(al, in_bam, clip_len, max_opp_clip, anchor)
 
         if is_clip:
-            fq_batch.append(fastq_str(al, realign, is_clip))
+            fastq_s = fastq_str(al, is_clip)    # get fastq string
+            fq_batch.append(fastq_s)            # append to fq output batch
+            seq = fastq_s.split("\n")[1]        # get just the seq line
+            ssw_al = check_polyA(seq, polyA_ssw) #pass to polyA function
+
+            #if we got a polyA hit,
+            if ssw_al:
+                al_tags = al.opt("TY").split(",")   #get the al's tags
+                cigar, ori = ssw_al                 # get the polyA result
+                #need to add a new tag
+                if 'ASL' in al_tags:                #add the SR or SL -polyA tag.
+                    pAtag = "SL"
+                elif 'ASR' in al_tags:
+                    pAtag = "SR"
+
+                #generate the new tag and update al.
+                newtag = pAtag+":"+"polyA,0,"+cigar+","+ori
+                al.setTag("RA",newtag)
 
         if anchor or is_clip:
             anchor_batch.append(sam_al(al, in_bam).sam_str(1))
@@ -192,7 +229,13 @@ def reverse_complement(sequence):
     complement = maketrans("ACTGactg", "TGACtgac") #define translation table for DNA
     return sequence[::-1].translate(complement)  #return the reversed and translated sequence
 
-def fastq_str(al, realign, is_clip=False):
+def hamming(str1, str2):
+    """Returns the hamming distance between two strings of equal length"""
+    assert len(str1) == len(str2)
+    return sum(c1 != c2 for c1, c2 in izip(str1,str2))
+
+
+def fastq_str(al, is_clip=False):
     """Returns a fastq string of the given BAM record"""
     seq = al.seq
     quals = al.qual
@@ -220,9 +263,6 @@ def fastq_str(al, realign, is_clip=False):
                 seq = seq[al.qend:]
                 quals = quals[al.qend:]
 
-        #put the tags back together
-        #tags=",".join(tags)
-
     #reverse the sequence if al is reversed
     if al.is_reverse:
         seq = reverse_complement(seq)
@@ -235,13 +275,12 @@ def fastq_str(al, realign, is_clip=False):
         name += "_2"
 
 
-    #return the fastq string, including the tags as a comment.
-    if realign == "bwamem":
-        return "@"+name+" TY:Z:"+tags+"\n"+seq+"\n+\n"+quals+"\n"
-    elif realign == "mosaik":
-        return "@"+name+":"+tags+"\n"+seq+"\n+\n"+quals+"\n"
+    #return the fastq string, appending tags to read name (rname:tags)
+    #NOTE: typical fastq format is rname<\t>comment
+    #(BWA can add these FASTQ comments to the output bam as tags, but other aligners cannot.)
+    return "@"+name+":"+tags+"\n"+seq+"\n+\n"+quals+"\n"
 
-def check_pairs(al1, in_bam, realign):
+def check_pairs(al1, in_bam):
     """Determines if a read from a pair is a UU, UR, or RU."""
     #default return values are False
     anc, fq = False, False
@@ -253,7 +292,7 @@ def check_pairs(al1, in_bam, realign):
     #if both are unique:
     if al1.mapq > 0 and mate_mapq > 0:
         al1.setTag("TY","UU")
-        fq = fastq_str(al1, realign)
+        fq = fastq_str(al1)
         anc = al1
 
     #if this al is not unique,
@@ -261,7 +300,7 @@ def check_pairs(al1, in_bam, realign):
         #realign this al
         al1.setTag("TY","RU")
         anc = False
-        fq = fastq_str(al1, realign)
+        fq = fastq_str(al1)
     
     #if other al is not unique,
     elif al1.mapq > 0 and mate_mapq == 0:
@@ -272,7 +311,12 @@ def check_pairs(al1, in_bam, realign):
 
     return fq, anc
 
-def check_clip(al, in_bam, clip_len, max_opp_clip, disc_pair):
+def check_clip(al, 
+            in_bam, 
+            clip_len, 
+            max_opp_clip, 
+            disc_pair):
+
     """Checks a given alignment for clipped bases on one end""" 
     cigar = al.cigar
 
@@ -306,6 +350,34 @@ def check_clip(al, in_bam, clip_len, max_opp_clip, disc_pair):
 
     return al, False
 
+def check_polyA(seq, 
+            polyA_ssw):
+
+    hit_f = polyA_ssw.align(seq, min_score=10, min_len=12)
+    hit_r = polyA_ssw.align(reverse_complement(seq), min_score=10,min_len=12)
+    
+    cutoff = 0.8
+    f_percent = 0
+    r_percent = 0
+    if hit_f:
+        f_len = (hit_f.query_end-hit_f.query_begin)+1
+        f_percent = hit_f.score/float(f_len*4)
+
+    if hit_r:
+        r_len = (hit_r.query_end-hit_r.query_begin)+1
+        r_percent = hit_r.score/float(r_len*4)
+
+    if (f_percent >= cutoff) and (r_percent >= cutoff):
+        if f_percent > r_percent:
+            return hit_f.cigar, "+"
+        else:
+            return hit_r.cigar, "-"
+    elif f_percent >= cutoff:
+        return hit_f.cigar, "+"
+    elif r_percent >= cutoff:
+        return hit_r.cigar, "-"
+    return False
+
 def zscore(val, mean, stdev):
     return abs((float(val)-float(mean))/float(stdev))
 
@@ -324,6 +396,7 @@ def filter_excludes(variants, exclude_file):
             #add chrom:interval to excludes
             excludes[chrom].addi(start, stop, 1) #intervaltree.addi(start, stop, data)
 
+    #could probably speed this up using a mapping function instead
     for variant in variants:
         #get interval tree for var chrom, and query with the position.
         if len(excludes[variant.chrom][variant.pos]) == 0:
@@ -342,9 +415,7 @@ description: Extract candidates for MEI re-alignment")
     parser.add_argument('-c', '--clip', metavar='LEN', required=True, type=int, help='Minimum clip length')
     parser.add_argument('-oc', '--opclip', metavar='LEN', required=False, type=int, help='Max opposite clip length')
     parser.add_argument('-s', '--single', required=False, action='store_true', help='Input single-ended')
-    parser.add_argument('-S', required=False, action='store_true', help='Input is SAM format')
-    parser.add_argument('-R', '--realign', required=True, type=str, help='Options are [mosaik, bwamem]')
-    
+    parser.add_argument('-S', required=False, action='store_true', help='Input is SAM format')    
 
 
     # parse the arguments
@@ -370,7 +441,7 @@ class Usage(Exception):
 def main():
     args = get_args()
 
-    extract_candidates(args.input, args.S, args.anchors, args.fastq, args.clip, args.single, args.realign, args.opclip)
+    extract_candidates(args.input, args.S, args.anchors, args.fastq, args.clip, args.single, args.opclip)
 
 if __name__ == "__main__":
     try:

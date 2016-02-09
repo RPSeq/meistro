@@ -11,7 +11,6 @@ PREFIX=$1
 INPUT_BAM=$2
 MEI_REF=$3
 OUTPUT_DIR_NAME=$4
-MOBSTER=$5
 
 
 #Set relative dirs
@@ -37,21 +36,7 @@ else
     mkdir ${RESULTS_DIR}
 fi
 
-###############
-### BWA MEM ###
-###############
-
-# sambamba view -t 4 -f bam -l 0 $INPUT_BAM \
-#     | python ${SCRIPTS_DIR}/extract_candidates.py -a >(samtools view -b - > ${OUTPUT}.anchors.bam) -f - -c 25 -oc 7 \
-#         | bwa mem -t 8 -k 11 -M -C $MEI_REF /dev/stdin \
-#             | samtools view -F 4 -b -u - | samtools sort -n - ${OUTPUT}.realigned
-
-# samtools merge - ${OUTPUT}.anchors.bam ${OUTPUT}.realigned.bam | samtools sort -n - ${OUTPUT}.merged
-
-# python ./filter_merged.py -i ${OUTPUT}.merged.bam -o /dev/stdout | samtools view -b - > ${OUTPUT}.filtered.bam
-
-
-###############
+##############
 ### MOSAIK ###
 ###############
 
@@ -60,7 +45,7 @@ fi
 #MosaikJump -ia ${IA}.dat -hs 9 -out ${IA}_hs9
 
 #extract candidate reads for realingment to MEI library
-sambamba view -t 4 -f bam -l 0 $INPUT_BAM | python ${SCRIPTS_DIR}/extract_candidates.py -a >(samtools view -b - > ${OUTPUT}.anchors.bam) -f - -c 20 -oc 10 -R mosaik > ${OUTPUT}.candidates.fq
+sambamba view -t 4 -f bam -l 0 $INPUT_BAM | python ${SCRIPTS_DIR}/extract_candidates.py -a >(samtools view -b - > ${OUTPUT}.anchors.bam) -f - -c 20 -oc 10 > ${OUTPUT}.candidates.fq 2> /dev/null
 
 #realing the candidates to the MEI library
 MosaikBuild -q ${OUTPUT}.candidates.fq -st illumina -out ${OUTPUT}.dat -quiet && \
@@ -75,17 +60,24 @@ samtools merge - ${OUTPUT}.anchors.bam ${OUTPUT}.hits.bam | samtools sort -n - $
 samtools view ${OUTPUT}.realigned.bam  -H | grep "^@SQ" | cut -f 2 | sed -e 's/SN://g' > ${OUTPUT}.mei_refnames.txt
 
 #filter the merged bam for anchor-mei pairs or splitters.
-python ./filter_merged.py -i ${OUTPUT}.merged.bam -o /dev/stdout -m ${OUTPUT}.mei_refnames.txt | samtools view -b - > ${OUTPUT}.filtered.bam
+python ./filter_merged.py -i ${OUTPUT}.merged.bam -o /dev/stdout -m ${OUTPUT}.mei_refnames.txt | samtools view -b - | samtools sort - ${OUTPUT}.filtered
 
-#################
+#get clusters with bedtools cluster######################
+samtools view ${OUTPUT}.filtered.bam | paste - \
+    <(bamToBed -i ${OUTPUT}.filtered.bam \
+            | bedtools cluster -d 300 \
+                | cut -f 7) \
+    | cat <(samtools view ${OUTPUT}.filtered.bam -H) - \
+    | vawk '{if($0 !~ /^@/) $NF="CL:i:"$NF; print $0}' \
+    | samtools view -b - > ${OUTPUT}.clusters.bam
+##########################################################
 
-
-#with intersection against repmask features:
 bamToBed -cigar -i ${OUTPUT}.filtered.bam | paste - <(samtools view ${OUTPUT}.filtered.bam \
     | vawk '{ for(i = 12; i <= NF; i++) { if($i ~ /^RA/) {print $i;} } }' ) \
-        | bedtools sort | bedtools cluster -d 350 \
-            | bedtools intersect -v -a - -b repmask/nchr.SLOP90.repmask_hg19_Alu.L1.SVA.ERV.bed > ${OUTPUT}.intersect_clusters.bed
+        | bedtools sort | bedtools cluster -d 300 > ${OUTPUT}.clusters.bed
 
-cat ${OUTPUT}.intersect_clusters.bed | python get_clusters.py > ${OUTPUT}.filtered_clusters.bed
-#print only TY tag (and fields 1 and 6) from BAM
-#awk '{for (i=1;i<=NF;i++) {if ($i ~/^TY:Z/) print $1"\t"$6"\t"$i;}}'
+bedtools intersect -v -a ${OUTPUT}.clusters.bed -b repmask/nchr.SLOP90.repmask_hg19_Alu.L1.SVA.ERV.bed > ${OUTPUT}.intersect_clusters.bed
+
+cat ${OUTPUT}.clusters.bed | python get_clusters.py > ${OUTPUT}.filtered_clusters.bed
+
+cat ${OUTPUT}.intersect_clusters.bed | python get_clusters.py > ${OUTPUT}.filtered_intersect_clusters.bed

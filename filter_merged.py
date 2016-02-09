@@ -64,17 +64,6 @@ def filter_merged(bamfile, is_sam, out_bam, mei_names):
             group = Namegroup(in_bam, mei_names, al)
 
     #sys.stderr.write("Done!\n")
-
-def mismatch(al):
-    """Returns number of mismatches in given alignment"""
-
-    cigar = al.cigar
-    #these flags are all mismatches (I,D,N,S,H,X)
-    mismatches = set([1,2,3,4,5,8])
-    NM = sum([sgmt[1] for sgmt in cigar if sgmt[0] in mismatches])
-    length = len(al.seq)
-    percent = NM/(float(length))
-    return percent
   
 def get_args():
     parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter, description="\
@@ -136,12 +125,28 @@ class Namegroup(object):
         return True
 
     def update_RA(self, RAtag, mei):
-        if not RAtag:
-            RAtag = ""
+
         ori = "+"
         if mei.is_reverse:
             ori = "-"
-        RAtag += mei.opt("TY")+":"+",".join([mei.qname, self.bam.getrname(mei.rname), str(mei.pos), mei.cigarstring, ori]) + ";"
+
+        if not RAtag:
+            RAtag = mei.opt("TY")+":"+",".join([self.bam.getrname(mei.rname), 
+                                                str(mei.pos), 
+                                                mei.cigarstring, 
+                                                ori])
+        else:
+            RAtag += ";" + mei.opt("TY")+":"+",".join([self.bam.getrname(mei.rname),
+                                                        str(mei.pos),
+                                                        mei.cigarstring,
+                                                        ori])
+            #when we use the Mobster Mosaik moblist ref, L1HS has a polyA tail starting at 6017 bp.
+            # this seems to "soak up" a lot of actual polyA sequences, so lets just ignore it for now
+            # and see if the SSW check_polyA function works properly.
+            if "polyA" in RAtag:
+                if self.bam.getrname(mei.rname) == "L1HS" and mei.pos >= 6000:
+                    return False
+
         return RAtag
 
     def process(self):
@@ -163,8 +168,6 @@ class Namegroup(object):
                         self.uu_mei[num-1] = True
                 else:
                     self.anchors.append(al)
-                    # if tags[0] == "UU":
-                    #     self.uu_anchor[num-1] = al
 
         #if both UUs aligned to mei, discard
         if all(self.uu_mei):
@@ -173,7 +176,11 @@ class Namegroup(object):
         for anchor in self.anchors:
             mnum = False
             uu_hit = False
-            RAtag = False
+            try:
+                RAtag = anchor.opt("RA")
+            except:
+                RAtag = False
+
             anum = int(anchor.qname.split("_")[1])
             #if anchor is a UU only
             tags = anchor.opt("TY").split(",")
