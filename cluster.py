@@ -8,7 +8,7 @@ __author__ = "Ryan Smith (ryanpsmith@wustl.edu)"
 __version__ = "$Revision: 0.0.1 $"
 __date__ = "$Date: 2016-2-8 13:45 $"
 
-def cluster(bamfile, is_sam, out_bam):
+def cluster(bamfile, is_sam, out_file="-"):
     """Main BAM parsing loop"""
 
     # set input file
@@ -23,20 +23,24 @@ def cluster(bamfile, is_sam, out_bam):
         else:
             in_bam = pysam.Samfile(bamfile, 'rb')
 
-    out_bam = pysam.Samfile(out_bam, 'wh', template=in_bam)
+    out_file = pysam.Samfile("-", 'wh', template=in_bam)
 
     #assuming name-sorted bam
     filtered = []
-    clust = cluster()
+    clust = anchor_cluster()
 
     #sys.stderr.write("Filtering...\n")
     for al in in_bam:
-        anch = anchor(al)
+        anch = anchor(al, in_bam)
         if not clust.add(anch):
-            if clust.get_breakends:
+            if clust.get_breakends():
                 filtered.append(clust)
-            anch = anchor.al
-            clust = cluster(anch)
+            clust = anchor_cluster(anch)
+
+    for clust in filtered:
+        for item in clust.anchors:
+            out_file.write(item.al)
+
 
 
 class anchor_cluster(object):
@@ -81,7 +85,7 @@ class anchor_cluster(object):
             self.polyA_L.append(anchor)
 
         if anchor.UR:
-            tag, mei, pos, ori = anchor.UR
+            tag, mei, pos, cigar, ori = anchor.UR
             if ori == "+":
                 self.RU_L.append(anchor)
             elif ori == "-":
@@ -91,8 +95,11 @@ class anchor_cluster(object):
 
     def get_breakends(self, min_num=0):
         #if we don't actually have any MEI reads (lots of polyA-only pileups to be discarded)
-        if sum([len(self.SL), len(self.SR), len(self.RU_L), len(self.RU_R)]) <= min_num:
+        if sum([len(self.SL), len(self.SR), len(self.RU_L), len(self.RU_R)]) <= 2:
             return False
+
+        #if len(self.polyA_L) > 0 and len(self.polyA_R) > 0:
+         #   return False
 
         if self.RU_R:
             for anchor in self.RU_R:
@@ -108,17 +115,16 @@ class anchor_cluster(object):
                     self.BND_L = anchor.end
         if self.SL:
             for anchor in self.SL:
-                if anchor.start < BND_R:
+                if anchor.start < self.BND_R:
                     self.BND_R = anchor.start
         if self.polyA_L:
             for anchor in self.polyA_L:
-                if anchor.start < BND_R:
+                if anchor.start < self.BND_R:
                     self.BND_R = anchor.start
         if self.polyA_R:
             for anchor in self.polyA_R:
                 if anchor.end > self.BND_L:
                     self.BND_L = anchor.end
-
         return True
 
 class anchor(object):
@@ -126,7 +132,7 @@ class anchor(object):
     def __init__(self, al, al_bam):
         self.al = al
         self.bam = al_bam
-        self.chrom = self.bam.get_rname(al.rname)
+        self.chrom = self.bam.getrname(al.rname)
         self.start = int(al.pos)
         self.end = int(al.aend)
 
@@ -139,7 +145,7 @@ class anchor(object):
 
         self.ori = "+"
         if al.is_reverse:
-            self.ori - "-"
+            self.ori = "-"
 
         try:
             self.tags = [x.split(",") for x in al.opt("RA").split(";")]
@@ -161,17 +167,17 @@ class anchor(object):
             if tag[0][0] == 'S':    #if its a split-read tag
                 if tag[0][1] == 'L':
                     if tag[1] == 'polyA': #check if polyA or mei
-                        self.polyA_L = tag[1:]
+                        self.polyA_L = tag
                     else:
-                        self.SL = tag[1:]
+                        self.SL = tag
                 elif tag[0][1] == 'R':
                     if tag[1] == 'polyA':
-                        self.polyA_R = tag[1:]
+                        self.polyA_R = tag
                     else:
-                        self.SR = tag[1:]
+                        self.SR = tag
 
             elif tag[0] == "UR" or tag[0] == "UU":
-                self.UR = tag[1:]
+                self.UR = tag
 
 
 def get_args():
@@ -182,7 +188,7 @@ version: " + __version__ + "\n\
 description: Process cluster.bam in MEIstro pipeline")
     parser.add_argument('-i', '--input', metavar='BAM', required=False, help='Input BAM file')
     parser.add_argument('-S', required=False, action='store_true', help='Input is SAM format')
-    parser.add_argument('-o', required=True, help='Output MEI BAM')
+    parser.add_argument('-o', required=False, help='Output ? file')
 
     # parse the arguments
     args = parser.parse_args()

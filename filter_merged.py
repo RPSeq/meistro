@@ -131,21 +131,23 @@ class Namegroup(object):
             ori = "-"
 
         if not RAtag:
-            RAtag = mei.opt("TY")+":"+",".join([self.bam.getrname(mei.rname), 
+            RAtag = mei.opt("TY")+","+",".join([self.bam.getrname(mei.rname), 
                                                 str(mei.pos), 
                                                 mei.cigarstring, 
                                                 ori])
         else:
-            RAtag += ";" + mei.opt("TY")+":"+",".join([self.bam.getrname(mei.rname),
-                                                        str(mei.pos),
-                                                        mei.cigarstring,
-                                                        ori])
             #when we use the Mobster Mosaik moblist ref, L1HS has a polyA tail starting at 6017 bp.
             # this seems to "soak up" a lot of actual polyA sequences, so lets just ignore it for now
             # and see if the SSW check_polyA function works properly.
             if "polyA" in RAtag:
                 if self.bam.getrname(mei.rname) == "L1HS" and mei.pos >= 6000:
-                    return False
+                    return RAtag
+                    
+            RAtag += ";" + mei.opt("TY")+","+",".join([self.bam.getrname(mei.rname),
+                                                        str(mei.pos),
+                                                        mei.cigarstring,
+                                                        ori])
+
 
         return RAtag
 
