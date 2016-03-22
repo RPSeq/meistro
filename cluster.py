@@ -9,7 +9,12 @@ __author__ = "Ryan Smith (ryanpsmith@wustl.edu)"
 __version__ = "$Revision: 0.0.1 $"
 __date__ = "$Date: 2016-2-8 13:45 $"
 
-def cluster(bamfile, pA_file, is_sam, out_file="-"):
+class cluster():
+    def __init__(self):
+        
+
+
+def scan(bamfile, pA_file, is_sam, out_file="-"):
     """Main BAM parsing loop"""
 
     # set input file
@@ -48,7 +53,6 @@ def cluster(bamfile, pA_file, is_sam, out_file="-"):
         except:
             sys.stderr.write("Error: MEI anchor reads must have RA tag added by filter_merged.py\n")
             exit(1)
-
 
 
 def get_args():
