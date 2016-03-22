@@ -107,7 +107,8 @@ class sam_al(object):
 def extract_candidates(bamfile, 
                         is_sam, 
                         anchors_out, 
-                        fastq_out, 
+                        fastq_out,
+                        pA_out, 
                         clip_len, 
                         single_only, 
                         max_opp_clip=7):
@@ -136,6 +137,9 @@ def extract_candidates(bamfile,
     if fastq_out == "-":
         fastq_out = "/dev/stdout"
     fastq_out = open(fastq_out, 'w')
+
+    pA_out = open(pA_out, 'w')
+    pA_out.write(header)
 
     #these collect output strings,
     #to be written to output file in batches to reduce IO
@@ -169,6 +173,10 @@ def extract_candidates(bamfile,
         if len(fq_batch) >= batchsize:
             fastq_out.write("".join(fq_batch))
             del fq_batch[:]
+
+        if len(pA_batch) >= batchsize:
+            fastq_out.write("".join(pA_batch))
+            del pA_batch[:]
 
         #skip secondary or duplicate alignments
         if al.is_secondary or al.is_duplicate:
@@ -209,15 +217,21 @@ def extract_candidates(bamfile,
 
                 #generate the new tag and update al.
                 newtag = pAtag+","+"polyA,0,"+cigar+","+ori
-                al.setTag("RA",newtag)
+                al.setTag("PA",newtag)
+                pA_batch.append(sam_al(al, in_bam).sam_str(1))
 
         if anchor or is_clip:
             anchor_batch.append(sam_al(al, in_bam).sam_str(1))
 
 
     #after finishing, write the remaining items in the batches.
+    pA_out.write("".join(pA_batch))
     anchors_out.write("".join(anchor_batch))
     fastq_out.write("".join(fq_batch))
+
+    pA_out.close()
+    anchors_out.close()
+    fastq_out.close()
             
 # ============================================
 # functions
@@ -233,7 +247,6 @@ def hamming(str1, str2):
     """Returns the hamming distance between two strings of equal length"""
     assert len(str1) == len(str2)
     return sum(c1 != c2 for c1, c2 in izip(str1,str2))
-
 
 def fastq_str(al, is_clip=False):
     """Returns a fastq string of the given BAM record"""
@@ -412,6 +425,7 @@ description: Extract candidates for MEI re-alignment")
     parser.add_argument('-i', '--input', metavar='BAM', required=False, help='Input BAM file [stdin]')
     parser.add_argument('-a', '--anchors', metavar='SAM', required=True, help='Output anchors SAM')
     parser.add_argument('-f', '--fastq', metavar='FASTQ', required=True, help='Output realign FASTQ')
+    parser.add_argument('-pa', '--polyA', metavar='POLYA', required=True, help='Output polyA SAM')
     parser.add_argument('-c', '--clip', metavar='LEN', required=True, type=int, help='Minimum clip length')
     parser.add_argument('-oc', '--opclip', metavar='LEN', required=False, type=int, help='Max opposite clip length')
     parser.add_argument('-s', '--single', required=False, action='store_true', help='Input single-ended')
@@ -441,7 +455,7 @@ class Usage(Exception):
 def main():
     args = get_args()
 
-    extract_candidates(args.input, args.S, args.anchors, args.fastq, args.clip, args.single, args.opclip)
+    extract_candidates(args.input, args.S, args.anchors, args.fastq, args.polyA, args.clip, args.single, args.opclip)
 
 if __name__ == "__main__":
     try:

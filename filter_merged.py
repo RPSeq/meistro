@@ -41,7 +41,7 @@ def filter_merged(bamfile, is_sam, out_bam, mei_names):
     # header = "@HD\tVN:1.3\tSO:queryname\n"
     # header+="\n".join(in_bam.text.split("\n")[1:])
 
-    #get meinames from file
+    #get meinames from file (#should probably get this from difference between the headers of the anchors and merged bams instead)
     mei_names = set(line.strip() for line in mei_names)
 
     #assuming name-sorted bam
@@ -124,29 +124,27 @@ class Namegroup(object):
         self.als.append(al)
         return True
 
-    def update_RA(self, RAtag, mei):
+    def update_RA(self, RAtag, PAtag, mei):
 
         ori = "+"
         if mei.is_reverse:
             ori = "-"
 
         if not RAtag:
-            RAtag = mei.opt("TY")+","+",".join([self.bam.getrname(mei.rname), 
-                                                str(mei.pos), 
-                                                mei.cigarstring, 
-                                                ori])
-        else:
+            if PAtag:
+                if self.bam.getrname(mei.rname) == "L1HS" and mei.pos >= 6000:
+                    RAtag = False
+            else:
+                RAtag = ",".join([mei.opt("TY"), self.bam.getrname(mei.rname), str(mei.pos), mei.cigarstring, ori])
             #when we use the Mobster Mosaik moblist ref, L1HS has a polyA tail starting at 6017 bp.
             # this seems to "soak up" a lot of actual polyA sequences, so lets just ignore it for now
             # and see if the SSW check_polyA function works properly.
-            if "polyA" in RAtag:
-                if self.bam.getrname(mei.rname) == "L1HS" and mei.pos >= 6000:
-                    return RAtag
-                    
-            RAtag += ";" + mei.opt("TY")+","+",".join([self.bam.getrname(mei.rname),
-                                                        str(mei.pos),
-                                                        mei.cigarstring,
-                                                        ori])
+        elif PAtag:
+            if self.bam.getrname(mei.rname) == "L1HS" and mei.pos >= 6000:
+                return RAtag
+
+        else:
+            RAtag += ";" + mei.opt("TY")+","+",".join([self.bam.getrname(mei.rname), str(mei.pos), mei.cigarstring, ori])
 
 
         return RAtag
@@ -183,6 +181,11 @@ class Namegroup(object):
             except:
                 RAtag = False
 
+            try:
+                PAtag = anchor.opt("PA")
+            except:
+                PAtag = False
+
             anum = int(anchor.qname.split("_")[1])
             #if anchor is a UU only
             tags = anchor.opt("TY").split(",")
@@ -194,7 +197,7 @@ class Namegroup(object):
                         #if its the mate of the UU, report it and add the new tag.
                         if mnum != anum:
                             uu_hit = True
-                            RAtag = self.update_RA(RAtag, mei)
+                            RAtag = self.update_RA(RAtag, PAtag, mei)
                             break
 
                 if not uu_hit:
@@ -207,7 +210,7 @@ class Namegroup(object):
                     if mei.opt("TY") == "RU":
                         mnum = int(mei.qname.split("_")[1])
                         if mnum != anum:
-                            RAtag = self.update_RA(RAtag, mei)
+                            RAtag = self.update_RA(RAtag, PAtag, mei)
                             break
 
             if 'ASL' in tags:
@@ -216,8 +219,7 @@ class Namegroup(object):
                     if mei.opt("TY") == 'SL':
                         mnum = int(mei.qname.split("_")[1])
                         if mnum == anum:
-                            RAtag = self.update_RA(RAtag, mei)
-                            hit = True
+                            RAtag = self.update_RA(RAtag, PAtag, mei)
                             break
 
             elif 'ASR' in tags:
@@ -225,7 +227,7 @@ class Namegroup(object):
                     if mei.opt("TY") == 'SR':
                         mnum = int(mei.qname.split("_")[1])
                         if mnum == anum:
-                            RAtag = self.update_RA(RAtag, mei)
+                            RAtag = self.update_RA(RAtag, PAtag, mei)
                             break
 
             if RAtag:

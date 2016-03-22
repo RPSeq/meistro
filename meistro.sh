@@ -45,7 +45,7 @@ fi
 #MosaikJump -ia ${IA}.dat -hs 9 -out ${IA}_hs9
 
 #extract candidate reads for realingment to MEI library
-sambamba view -t 4 -f bam -l 0 $INPUT_BAM | python ${SCRIPTS_DIR}/extract_candidates.py -a >(samtools view -b - > ${OUTPUT}.anchors.bam) -f - -c 20 -oc 10 > ${OUTPUT}.candidates.fq 2> /dev/null
+sambamba view -t 4 -f bam -l 0 $INPUT_BAM | head -n 300000 | python ${SCRIPTS_DIR}/extract_candidates.py -a >(samtools view -b - > ${OUTPUT}.anchors.bam) -pa >(samtools view -b - > ${OUTPUT}.polyA.bam) -f - -c 20 -oc 10 > ${OUTPUT}.candidates.fq 2> /dev/null
 
 #realing the candidates to the MEI library
 MosaikBuild -q ${OUTPUT}.candidates.fq -st illumina -out ${OUTPUT}.dat -quiet && \
@@ -58,26 +58,31 @@ samtools merge - ${OUTPUT}.anchors.bam ${OUTPUT}.hits.bam | samtools sort -n - $
 
 #get the refnames from the MEI library
 samtools view ${OUTPUT}.realigned.bam  -H | grep "^@SQ" | cut -f 2 | sed -e 's/SN://g' > ${OUTPUT}.mei_refnames.txt
+#i should just have filter_merged take the genome reference .fa as input: @SQ entries in the merged header that are not in the reference genome are the mei refnames.
+#or just have filter_merged.py take realigned and anchors as input (likely speedup too)
 
 #filter the merged bam for anchor-mei pairs or splitters.
-python ./filter_merged.py -i ${OUTPUT}.merged.bam -o /dev/stdout -m ${OUTPUT}.mei_refnames.txt | samtools view -b - | samtools sort - ${OUTPUT}.filtered
+python ./filter_merged.py -i ${OUTPUT}.merged.bam -m ${OUTPUT}.mei_refnames.txt -o ${OUTPUT}.filtered.bam
 
-#get clusters with bedtools cluster######################
-samtools view ${OUTPUT}.filtered.bam | paste - \
-    <(bamToBed -i ${OUTPUT}.filtered.bam \
-            | bedtools cluster -d 300 \
-                | cut -f 7) \
-    | cat <(samtools view ${OUTPUT}.filtered.bam -H) - \
-    | vawk '{if($0 !~ /^@/) $NF="CL:i:"$NF; print $0}' \
-    | samtools view -b - > ${OUTPUT}.clusters.bam
-##########################################################
+#index the polyA bam for later fetch calls
+samtools index ${OUTPUT}.polyA.bam
 
-bamToBed -cigar -i ${OUTPUT}.filtered.bam | paste - <(samtools view ${OUTPUT}.filtered.bam \
-    | vawk '{ for(i = 12; i <= NF; i++) { if($i ~ /^RA/) {print $i;} } }' ) \
-        | bedtools sort | bedtools cluster -d 300 > ${OUTPUT}.clusters.bed
+python ./cluster.py -i ${OUTPUT}.filtered.bam -pa ${OUTPUT}.polyA.bam -o /dev/null
 
-bedtools intersect -v -a ${OUTPUT}.clusters.bed -b repmask/nchr.SLOP90.repmask_hg19_Alu.L1.SVA.ERV.bed > ${OUTPUT}.intersect_clusters.bed
+# #get clusters with bedtools cluster######################
+# samtools view ${OUTPUT}.filtered.bam | paste - \
+#     <(bamToBed -i ${OUTPUT}.filtered.bam \
+#             | bedtools cluster -d 300 \
+#                 | cut -f 7) \
+#     | cat <(samtools view ${OUTPUT}.filtered.bam -H) - \
+#     | vawk '{if($0 !~ /^@/) $NF="CL:i:"$NF; print $0}' \
+#     | samtools view -b - > ${OUTPUT}.clusters.bam
+# ##########################################################
 
-cat ${OUTPUT}.clusters.bed | python get_clusters.py > ${OUTPUT}.filtered_clusters.bed
+# bamToBed -cigar -i ${OUTPUT}.filtered.bam | paste - <(samtools view ${OUTPUT}.filtered.bam \
+#     | vawk '{ for(i = 12; i <= NF; i++) { if($i ~ /^RA/) {print $i;} } }' ) \
+#         | bedtools sort | bedtools cluster -d 300 > ${OUTPUT}.clusters.bed
 
-cat ${OUTPUT}.intersect_clusters.bed | python get_clusters.py > ${OUTPUT}.filtered_intersect_clusters.bed
+
+# bamToBed -cigar -i ${OUTPUT}.filtered.bam | paste - <(samtools view ${OUTPUT}.filtered.bam \
+#     | vawk '{ for(i = 12; i <= NF; i++) { if($i ~ /^RA/) {print $i;} } }' )
