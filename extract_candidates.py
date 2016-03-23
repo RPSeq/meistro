@@ -211,7 +211,7 @@ def extract_candidates(bamfile,
 
                 #generate the new tag and update al.
                 newtag = pAtag+","+"polyA,0,"+cigar+","+ori
-                al.setTag("PA",newtag)
+                al.setTag("RA",newtag)
 
         if anchor or is_clip:
             anchor_batch.append(sam_al(al, in_bam).sam_str(1))

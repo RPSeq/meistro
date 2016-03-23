@@ -124,26 +124,25 @@ class Namegroup(object):
         self.als.append(al)
         return True
 
-    def update_RA(self, RAtag, PAtag, mei):
+    def update_RA(self, RAtag, mei):
 
         ori = "+"
         if mei.is_reverse:
             ori = "-"
 
         if not RAtag:
-            if PAtag:
-                if self.bam.getrname(mei.rname) == "L1HS" and mei.pos >= 6000:
-                    RAtag = False
-            else:
-                RAtag = ",".join([mei.opt("TY"), self.bam.getrname(mei.rname), str(mei.pos), mei.cigarstring, ori])
+            RAtag = mei.opt("TY")+","+",".join([self.bam.getrname(mei.rname), 
+                                                str(mei.pos), 
+                                                mei.cigarstring, 
+                                                ori])
+        else:
             #when we use the Mobster Mosaik moblist ref, L1HS has a polyA tail starting at 6017 bp.
             # this seems to "soak up" a lot of actual polyA sequences, so lets just ignore it for now
             # and see if the SSW check_polyA function works properly.
-        elif PAtag:
-            if self.bam.getrname(mei.rname) == "L1HS" and mei.pos >= 6000:
-                return RAtag
-
-        else:
+            if "polyA" in RAtag:
+                if self.bam.getrname(mei.rname) == "L1HS" and mei.pos >= 6000:
+                    return RAtag
+                    
             RAtag += ";" + mei.opt("TY")+","+",".join([self.bam.getrname(mei.rname), str(mei.pos), mei.cigarstring, ori])
 
 
@@ -181,11 +180,6 @@ class Namegroup(object):
             except:
                 RAtag = False
 
-            try:
-                PAtag = anchor.opt("PA")
-            except:
-                PAtag = False
-
             anum = int(anchor.qname.split("_")[1])
             #if anchor is a UU only
             tags = anchor.opt("TY").split(",")
@@ -197,7 +191,7 @@ class Namegroup(object):
                         #if its the mate of the UU, report it and add the new tag.
                         if mnum != anum:
                             uu_hit = True
-                            RAtag = self.update_RA(RAtag, PAtag, mei)
+                            RAtag = self.update_RA(RAtag, mei)
                             break
 
                 if not uu_hit:
@@ -210,7 +204,7 @@ class Namegroup(object):
                     if mei.opt("TY") == "RU":
                         mnum = int(mei.qname.split("_")[1])
                         if mnum != anum:
-                            RAtag = self.update_RA(RAtag, PAtag, mei)
+                            RAtag = self.update_RA(RAtag, mei)
                             break
 
             if 'ASL' in tags:
@@ -219,7 +213,7 @@ class Namegroup(object):
                     if mei.opt("TY") == 'SL':
                         mnum = int(mei.qname.split("_")[1])
                         if mnum == anum:
-                            RAtag = self.update_RA(RAtag, PAtag, mei)
+                            RAtag = self.update_RA(RAtag, mei)
                             break
 
             elif 'ASR' in tags:
@@ -227,10 +221,13 @@ class Namegroup(object):
                     if mei.opt("TY") == 'SR':
                         mnum = int(mei.qname.split("_")[1])
                         if mnum == anum:
-                            RAtag = self.update_RA(RAtag, PAtag, mei)
+                            RAtag = self.update_RA(RAtag, mei)
                             break
 
             if RAtag:
+                #don't add to output if ONLY polyA signal (these will be in a separate file)
+                if len(RAtag.split(";")) == 1 and RAtag.split(",")[1] == "polyA":
+                    break
                 anchor.setTag("RA", RAtag)
                 self.filtered_anchors.append(anchor)
 

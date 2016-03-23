@@ -9,10 +9,37 @@ __author__ = "Ryan Smith (ryanpsmith@wustl.edu)"
 __version__ = "$Revision: 0.0.1 $"
 __date__ = "$Date: 2016-2-8 13:45 $"
 
-class cluster():
+class cluster(object):
+    #subclasses for the 4 different sub-clusters in a MEI read cluster.
+    #doesn't have to be this way
     def __init__(self):
-        
+        self.als = []
+        self.chrom = False
+        self.start = False
+        self.end = False
 
+    def add_al(self, al):
+        if True:
+            self.al.add(read)
+
+class split_clust(object):
+    def __init__(self):
+        self.als = []
+        self.ori = False
+        self.chrom = False
+        self.start = False
+        self.end = False
+
+    def add_al(self,al):
+
+class pair_clust(object):
+    def __init__(self):
+        self.als = []
+        self.ori = False
+        self.start = False
+        self.end = False
+
+    def add_al(self, al):
 
 def scan(bamfile, pA_file, is_sam, out_file="-"):
     """Main BAM parsing loop"""
@@ -53,6 +80,7 @@ def scan(bamfile, pA_file, is_sam, out_file="-"):
         except:
             sys.stderr.write("Error: MEI anchor reads must have RA tag added by filter_merged.py\n")
             exit(1)
+        pos = al.
 
 
 def get_args():

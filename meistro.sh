@@ -40,13 +40,16 @@ fi
 ### MOSAIK ###
 ###############
 
-## If MOSIAK reference hasnt been built:
-#MosaikBuild -fr ${IA}.fa -oa ${IA}.dat
-#MosaikJump -ia ${IA}.dat -hs 9 -out ${IA}_hs9
+# If MOSIAK reference hasnt been built:
+# MosaikBuild -fr ${IA}.fa -oa ${IA}.dat
+# MosaikJump -ia ${IA}.dat -hs 9 -out ${IA}_hs9
 
 #extract candidate reads for realingment to MEI library
-#sambamba view -t 4 -f bam -l 0 $INPUT_BAM | python ${SCRIPTS_DIR}/extract_candidates.py -a >(samtools view -b - > ${OUTPUT}.anchors.bam) -f - -c 20 -oc 10 > ${OUTPUT}.candidates.fq 2> /dev/null
-sambamba view -t 4 -f bam -l 0 $INPUT_BAM | head -n 500000 | python ${SCRIPTS_DIR}/extract_candidates.py -a >(tee >(grep "PA:Z" > ${OUTPUT}.polyA.sam_nh) | samtools view -b - > ${OUTPUT}.anchors.bam) -f - -c 20 -oc 10 > ${OUTPUT}.candidates.fq 2> /dev/null
+sambamba view -t 4 -f bam -l 0 $INPUT_BAM | \
+    python ${SCRIPTS_DIR}/extract_candidates.py \
+        -a >(tee >(grep -e "polyA" -e "^@" | samtools view -b - > ${OUTPUT}.polyA.bam) \
+            | samtools view -b - > ${OUTPUT}.anchors.bam) \
+                -f - -c 20 -oc 10 > ${OUTPUT}.candidates.fq 2> /dev/null
 
 #realing the candidates to the MEI library
 MosaikBuild -q ${OUTPUT}.candidates.fq -st illumina -out ${OUTPUT}.dat -quiet && \
@@ -63,10 +66,10 @@ samtools view ${OUTPUT}.realigned.bam  -H | grep "^@SQ" | cut -f 2 | sed -e 's/S
 #or just have filter_merged.py take realigned and anchors as input (likely speedup too)
 
 #filter the merged bam for anchor-mei pairs or splitters.
-python ./filter_merged.py -i ${OUTPUT}.merged.bam -m ${OUTPUT}.mei_refnames.txt -o ${OUTPUT}.filtered.bam
+python ./filter_merged.py -i ${OUTPUT}.merged.bam -m ${OUTPUT}.mei_refnames.txt -o >(samtools sort - -f ${OUTPUT}.filtered.bam)
 
 #index the polyA bam for later fetch calls
-cat <(samtools view -H ${OUTPUT}.anchors.bam) ${OUTPUT}.polyA.sam_nh | samtools view -b - > ${OUTPUT}.polyA.bam && samtools index ${OUTPUT}.polyA.bam && rm ${OUTPUT}.polyA.sam_nh
+samtools index ${OUTPUT}.polyA.bam
 #python ./cluster.py -i ${OUTPUT}.filtered.bam -pa ${OUTPUT}.polyA.bam -o /dev/null
 
 # #get clusters with bedtools cluster######################
