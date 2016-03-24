@@ -78,7 +78,7 @@ class sam_al(object):
         self.is_paired = al.is_paired
         return
 
-    def sam_str(self, tag=False):
+    def __str__(self, tag=True):
         """Returns the sam record as a single string"""
         name = self.qname
         if tag:
@@ -97,11 +97,6 @@ class sam_al(object):
                 ttype = 'Z'
             outlist.append("{0}:{1}:{2}".format(tag, ttype, val))
         return "\t".join(outlist)+"\n"
-
-    def write(self, output):
-        line = self.sam_str()
-        output.write(line)
-        return
 
 #main loop function
 def extract_candidates(bamfile, 
@@ -214,8 +209,7 @@ def extract_candidates(bamfile,
                 al.setTag("RA",newtag)
 
         if anchor or is_clip:
-            anchor_batch.append(sam_al(al, in_bam).sam_str(1))
-
+            anchor_batch.append(str(sam_al(al, in_bam)))
 
     #after finishing, write the remaining items in the batches.
     anchors_out.write("".join(anchor_batch))

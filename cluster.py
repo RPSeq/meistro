@@ -9,39 +9,42 @@ __author__ = "Ryan Smith (ryanpsmith@wustl.edu)"
 __version__ = "$Revision: 0.0.1 $"
 __date__ = "$Date: 2016-2-8 13:45 $"
 
-class cluster(object):
-    #subclasses for the 4 different sub-clusters in a MEI read cluster.
-    #doesn't have to be this way
-    def __init__(self):
-        self.als = []
-        self.chrom = False
-        self.start = False
-        self.end = False
 
-    def add_al(self, al):
-        if True:
-            self.al.add(read)
+#we will have one active cluster for each family (as we see the reads)
+#scanning across. als are collected into their appropriate cluster.
+#if evidence of an MEI, query for polyA signal in the appropriate region/ori
+#when cluster is finished collecting, need to merge subclusters (can be PR,PL,SR,SL (and polyA?))
 
-class split_clust(object):
-    def __init__(self):
-        self.als = []
-        self.ori = False
-        self.chrom = False
-        self.start = False
-        self.end = False
+class mei_tag(object):
+    '''Encapsulates an mei realignment tag'''
+    def __init__(self, tag):
+        tag = tag.split(",")
+        self.type = tag[0]
+        self.mei = tag[1]
+        self.start = tag[2]
+        self.cigar = tag[3]
+        self.ori = tag[4]
 
-    def add_al(self,al):
+class anchor(object):
+    '''Encapsulates an mei realignment anchor'''
+    def __init__(self, al, al_bam):
+        self.al = al
+        self.bam = al_bam
+        self.name = al.qname
+        self.chrom = self.bam.getrname(al.rname)
+        self.start = int(al.pos)
+        self.end = int(al.aend)
+        self.cigar = al.cigarstring
+        self.ori = "+"
+        if al.is_reverse:
+            self.ori = "-"
+        try:
+            self.tags = [mei_tag(tag) for tag in al.opt("RA").split(";")]
+        except:
+            sys.stderr.write("cluster.py Error: Reads must have RA tags added from filter_merged.py\n")
+            exit(1)
 
-class pair_clust(object):
-    def __init__(self):
-        self.als = []
-        self.ori = False
-        self.start = False
-        self.end = False
-
-    def add_al(self, al):
-
-def scan(bamfile, pA_file, is_sam, out_file="-"):
+def scan(bamfile, pA_file, is_sam, out_file="/dev/stdout"):
     """Main BAM parsing loop"""
 
     # set input file
@@ -56,7 +59,7 @@ def scan(bamfile, pA_file, is_sam, out_file="-"):
         else:
             in_bam = pysam.Samfile(bamfile, 'rb')
 
-    out_file = open(out_file, "w")
+    #out_file = open(out_file, "w")
 
     pA_file = pysam.Samfile(pA_file, 'rb')
     #fetch like this:#
@@ -72,15 +75,13 @@ def scan(bamfile, pA_file, is_sam, out_file="-"):
     #1- how should I define families? Easy way: first two chars of MEI refname.
     #with the Mobster ref, this allows AL, L1, SV, and HE
     #we also need to have Sl, SR, PL, PR, and account for the polyA signal.
-    for al in in_bam:
+    in_bam.next()
+    for i in range(1000):
         #tag = [(SL/SR/UR/UU),mei_name,start,cigar,ori]
-        chrom = in_bam.getrname(al.rname)
-        try:
-            tags = [x.split(",") for x in al.opt("RA").split(";")]
-        except:
-            sys.stderr.write("Error: MEI anchor reads must have RA tag added by filter_merged.py\n")
-            exit(1)
-        pos = al.
+        al = in_bam.next()
+        anc = anchor(al, in_bam)
+        for tag in anc.tags:
+            sys.stdout.write("\t".join([anc.name, anc.chrom, str(anc.start),str(anc.end), anc.ori, tag.mei, tag.type, tag.ori])+"\n")
 
 
 def get_args():
@@ -116,7 +117,7 @@ class Usage(Exception):
 
 def main():
     args = get_args()
-    cluster(args.input, args.polyA, args.S, args.o)
+    scan(args.input, args.polyA, args.S, args.o)
 
 if __name__ == "__main__":
     try:
