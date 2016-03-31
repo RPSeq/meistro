@@ -14,6 +14,33 @@ __date__ = "$Date: 2016-2-8 13:45 $"
 #scanning across. als are collected into their appropriate cluster.
 #if evidence of an MEI, query for polyA signal in the appropriate region/ori
 #when cluster is finished collecting, need to merge subclusters (can be PR,PL,SR,SL (and polyA?))
+class cluster(object):
+    def __init__(self, mei):
+        self.PR = []
+        self.PL = []
+        self.SR = []
+        self.SL = []
+        self.pA = []
+        self.PR_end = 0
+        self.PL_end = 0
+        self.SR_end = 0
+        self.SL_end = 0
+        self.pA_end = 0
+        self.ori = False
+        self.mei = mei
+
+class split_cluster(object):
+    def __init__(self):
+        self.anchors = []
+        self.side = False
+        self.end = 0
+        self.ori = ori
+
+class pair_cluster(object):
+    def __init__(self):
+        self.anchors = []
+        self.side = False
+        self.end = 0
 
 class mei_tag(object):
     '''Encapsulates an mei realignment tag'''
@@ -38,6 +65,7 @@ class anchor(object):
         self.ori = "+"
         if al.is_reverse:
             self.ori = "-"
+        #load mei_tags for an anchor
         try:
             self.tags = [mei_tag(tag) for tag in al.opt("RA").split(";")]
         except:
@@ -69,19 +97,32 @@ def scan(bamfile, pA_file, is_sam, out_file="/dev/stdout"):
     # print(str(count))
     ###################
 
-    #assuming name-sorted bam
+    ######class testing#####
+    # in_bam.next()
+    # for i in range(1000):
+    #     #tag = [(SL/SR/UR/UU),mei_name,start,cigar,ori]
+    #     al = in_bam.next()
+    #     anc = anchor(al, in_bam)
+    #     for tag in anc.tags:
+    #         sys.stdout.write("\t".join([anc.name, anc.chrom, str(anc.start),str(anc.end), anc.ori, tag.mei, tag.type, tag.ori])+"\n")
+    ######class testing######
 
-    #need to have a "current cluster" for each MEI family. 
-    #1- how should I define families? Easy way: first two chars of MEI refname.
-    #with the Mobster ref, this allows AL, L1, SV, and HE
-    #we also need to have Sl, SR, PL, PR, and account for the polyA signal.
-    in_bam.next()
-    for i in range(1000):
-        #tag = [(SL/SR/UR/UU),mei_name,start,cigar,ori]
-        al = in_bam.next()
+    for al in in_bam:
         anc = anchor(al, in_bam)
         for tag in anc.tags:
-            sys.stdout.write("\t".join([anc.name, anc.chrom, str(anc.start),str(anc.end), anc.ori, tag.mei, tag.type, tag.ori])+"\n")
+            if tag.type = "SL":
+                #something
+
+            elif tag.type = "SR":
+                #something
+
+            elif tag.type = "UR":
+                #something
+
+            elif tag.type = "UU":
+                #something
+
+        
 
 
 def get_args():
