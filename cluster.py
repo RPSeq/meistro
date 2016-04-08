@@ -11,36 +11,26 @@ __date__ = "$Date: 2016-2-8 13:45 $"
 
 
 #we will have one active cluster for each family (as we see the reads)
-#scanning across. als are collected into their appropriate cluster.
-#if evidence of an MEI, query for polyA signal in the appropriate region/ori
+#scanning across. als are collected into their appropriate sub_cluster.
 #when cluster is finished collecting, need to merge subclusters (can be PR,PL,SR,SL (and polyA?))
 class cluster(object):
     def __init__(self, mei):
-        self.PR = []
-        self.PL = []
-        self.SR = []
-        self.SL = []
-        self.pA = []
-        self.PR_end = 0
-        self.PL_end = 0
-        self.SR_end = 0
-        self.SL_end = 0
-        self.pA_end = 0
-        self.ori = False
+        pass
+
+class sub_cluster(object):
+    def __init__(self, mei, ori, type):
+        self.anchors = []
+        self.type = clust_type
+        #clust type can be pair or split. but, i have a generic L or R orientation for splits
+        # and do not have the same for pairs; however there is no reason i can't.
+        # so, here i define a new convention: + paired anchors are R, as the MEI segment is on the RIGHT from the anchor segment.
+        # and thus, - paired anchors are L, as the MEI segment is on the LEFT relative to the anchor.
+        # now, as long as the orientations for a cluster are concordant, (+-,++) are PR and (-+, --) are PL.
+        # it might be a good idea to modify filter_merged.py to change RU and UU to PR and PL.
+        # BUT: SR and SL do not have a native anchor orientation; that is, a PL can still be in the positive orientation,
+        # but the 5' side of the segment is clipped and remapped to an MEI. how do i account for this in the generic sub_cluster type?
         self.mei = mei
-
-class split_cluster(object):
-    def __init__(self):
-        self.anchors = []
-        self.side = False
-        self.end = 0
-        self.ori = ori
-
-class pair_cluster(object):
-    def __init__(self):
-        self.anchors = []
-        self.side = False
-        self.end = 0
+        assert ori in set("++", "--", "+-", "-+")
 
 class mei_tag(object):
     '''Encapsulates an mei realignment tag'''
@@ -106,20 +96,21 @@ def scan(bamfile, pA_file, is_sam, out_file="/dev/stdout"):
     #     for tag in anc.tags:
     #         sys.stdout.write("\t".join([anc.name, anc.chrom, str(anc.start),str(anc.end), anc.ori, tag.mei, tag.type, tag.ori])+"\n")
     ######class testing######
+    curr_cluster = {}
 
     for al in in_bam:
         anc = anchor(al, in_bam)
         for tag in anc.tags:
-            if tag.type = "SL":
+            if tag.type == "SL":
                 #something
 
-            elif tag.type = "SR":
+            elif tag.type == "SR":
                 #something
 
-            elif tag.type = "UR":
+            elif tag.type == "UR":
                 #something
 
-            elif tag.type = "UU":
+            elif tag.type == "UU":
                 #something
 
         

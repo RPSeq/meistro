@@ -124,14 +124,28 @@ class Namegroup(object):
         self.als.append(al)
         return True
 
-    def update_RA(self, RAtag, mei):
+    def update_RA(self, RAtag, mei, anchor):
 
         ori = "+"
         if mei.is_reverse:
             ori = "-"
 
+        try:
+            # DON"T WORRY: anchors can have 2 items in their TY tags,
+            # but any single MEI realignment can only have one TY tag. 
+            # (if an anchor has two TY tags, it could have two mei reals, each with one TY tag.)
+            RA_type = mei.opt("TY")
+        except:
+            sys.stderr.write("Reads must have TY tags; make sure the input .bam was processed by extract_candidates.py")
+
+        #set pair direction tag based on anchor ori. now these will match the split tags.
+        if RA_type == "UU" or RA_type == "RU":
+            RA_type = "PR"
+            if anchor.is_reverse:
+                RA_type = "PL"
+
         if not RAtag:
-            RAtag = mei.opt("TY")+","+",".join([self.bam.getrname(mei.rname), 
+            RAtag = RA_type+","+",".join([self.bam.getrname(mei.rname), 
                                                 str(mei.pos), 
                                                 mei.cigarstring, 
                                                 ori])
@@ -143,8 +157,7 @@ class Namegroup(object):
                 if self.bam.getrname(mei.rname) == "L1HS" and mei.pos >= 6000:
                     return RAtag
                     
-            RAtag += ";" + mei.opt("TY")+","+",".join([self.bam.getrname(mei.rname), str(mei.pos), mei.cigarstring, ori])
-
+            RAtag += ";" + RA_type+","+",".join([self.bam.getrname(mei.rname), str(mei.pos), mei.cigarstring, ori])
 
         return RAtag
 
@@ -176,6 +189,7 @@ class Namegroup(object):
             mnum = False
             uu_hit = False
             try:
+                #account for the polyA RA tag that already exists if this readgroup aliged to polyA.
                 RAtag = anchor.opt("RA")
             except:
                 RAtag = False
@@ -183,6 +197,10 @@ class Namegroup(object):
             anum = int(anchor.qname.split("_")[1])
             #if anchor is a UU only
             tags = anchor.opt("TY").split(",")
+
+            #lots of code duplication in this next section.
+            # also, i should delete an mei from self.meis when it's added to the RAtag,
+            # this could speed things up a bit, cutting down on the number of iterations through self.meis
             if "UU" in tags:
                 #look for UU realignment in meis
                 for mei in self.meis:
@@ -191,20 +209,27 @@ class Namegroup(object):
                         #if its the mate of the UU, report it and add the new tag.
                         if mnum != anum:
                             uu_hit = True
-                            RAtag = self.update_RA(RAtag, mei)
+                            RAtag = self.update_RA(RAtag, mei, anchor)
                             break
 
                 if not uu_hit:
                     #delete the UU tag if there are other tags, no longer relevant
                     if len(tags) > 1:
-                        del tags[0]
+                        #this only works because read pairs are ALWAYS checked before clippers
+                        #in extract_candidates. thus, if a read is a split and a UU, the UU tag will come first.
+                        #SHIT NOW, polyA hits of UUs MAY be deleted! what do I do about this? (think i fixed it.)
+                        #del tags[0]
+                        for i in range(len(tags)):
+                            if tags[i] == "UU":
+                                del tags[i]
+                                break                        
 
             if "UR" in tags:
                 for mei in self.meis:
                     if mei.opt("TY") == "RU":
                         mnum = int(mei.qname.split("_")[1])
                         if mnum != anum:
-                            RAtag = self.update_RA(RAtag, mei)
+                            RAtag = self.update_RA(RAtag, mei, anchor)
                             break
 
             if 'ASL' in tags:
@@ -213,7 +238,7 @@ class Namegroup(object):
                     if mei.opt("TY") == 'SL':
                         mnum = int(mei.qname.split("_")[1])
                         if mnum == anum:
-                            RAtag = self.update_RA(RAtag, mei)
+                            RAtag = self.update_RA(RAtag, mei, anchor)
                             break
 
             elif 'ASR' in tags:
@@ -221,13 +246,13 @@ class Namegroup(object):
                     if mei.opt("TY") == 'SR':
                         mnum = int(mei.qname.split("_")[1])
                         if mnum == anum:
-                            RAtag = self.update_RA(RAtag, mei)
+                            RAtag = self.update_RA(RAtag, mei, anchor)
                             break
 
             if RAtag:
                 #don't add to output if ONLY polyA signal (these will be in a separate file)
-                if len(RAtag.split(";")) == 1 and RAtag.split(",")[1] == "polyA":
-                    break
+                # if len(RAtag.split(";")) == 1 and RAtag.split(",")[1] == "polyA":
+                #     break
                 anchor.setTag("RA", RAtag)
                 self.filtered_anchors.append(anchor)
 
