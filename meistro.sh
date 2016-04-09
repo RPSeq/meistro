@@ -44,13 +44,6 @@ fi
 # MosaikBuild -fr ${IA}.fa -oa ${IA}.dat
 # MosaikJump -ia ${IA}.dat -hs 9 -out ${IA}_hs9
 
-#extract candidate reads for realingment to MEI library
-# sambamba view -t 4 -f bam -l 0 $INPUT_BAM | \
-#     python ${SCRIPTS_DIR}/extract_candidates.py \
-#         -a >(tee >(grep -e "polyA" -e "^@" | samtools view -b - > ${OUTPUT}.polyA.bam) \
-#             | samtools view -b - > ${OUTPUT}.anchors.bam) \
-#                 -f - -c 20 -oc 10 > ${OUTPUT}.candidates.fq 2> /dev/null
-
 sambamba view -t 4 -f bam -l 0 $INPUT_BAM | \
     python ${SCRIPTS_DIR}/extract_candidates.py \
         -a >(samtools view -b - > ${OUTPUT}.anchors.bam) \
@@ -73,24 +66,15 @@ samtools view ${OUTPUT}.realigned.bam  -H | grep "^@SQ" | cut -f 2 | sed -e 's/S
 #filter the merged bam for anchor-mei pairs or splitters.
 python ./filter_merged.py -i ${OUTPUT}.merged.bam -m ${OUTPUT}.mei_refnames.txt -o >(samtools sort - -f ${OUTPUT}.filtered.bam)
 
-#index the polyA bam for later fetch calls
-#samtools index ${OUTPUT}.polyA.bam
-#python ./cluster.py -i ${OUTPUT}.filtered.bam -pa ${OUTPUT}.polyA.bam -o /dev/null
+bedtools window -abam ${OUTPUT}.filtered.bam -b repmask/repmask_hg19_Alu.L1.SVA.ERV.nochr.bed -v -w 90 > ${OUTPUT}.repmasked.bam
 
-# #get clusters with bedtools cluster######################
-# samtools view ${OUTPUT}.filtered.bam | paste - \
-#     <(bamToBed -i ${OUTPUT}.filtered.bam \
-#             | bedtools cluster -d 300 \
-#                 | cut -f 7) \
-#     | cat <(samtools view ${OUTPUT}.filtered.bam -H) - \
-#     | vawk '{if($0 !~ /^@/) $NF="CL:i:"$NF; print $0}' \
-#     | samtools view -b - > ${OUTPUT}.clusters.bam
-# ##########################################################
+bamToBed -cigar -i ${OUTPUT}.filtered.bam | paste - <(samtools view ${OUTPUT}.filtered.bam \
+    | vawk '{ for(i = 12; i <= NF; i++) { if($i ~ /^RA/) {print $i;} } }' ) \
+        | bedtools sort | bedtools cluster -d 300 > ${OUTPUT}.clusters.bed
 
-# bamToBed -cigar -i ${OUTPUT}.filtered.bam | paste - <(samtools view ${OUTPUT}.filtered.bam \
-#     | vawk '{ for(i = 12; i <= NF; i++) { if($i ~ /^RA/) {print $i;} } }' ) \
-#         | bedtools sort | bedtools cluster -d 300 > ${OUTPUT}.clusters.bed
+cat ${OUTPUT}.clusters.bed | python ./getclusters.py > ${OUTPUT}.filtered_clusters.bed
 
-
-# bamToBed -cigar -i ${OUTPUT}.filtered.bam | paste - <(samtools view ${OUTPUT}.filtered.bam \
-#     | vawk '{ for(i = 12; i <= NF; i++) { if($i ~ /^RA/) {print $i;} } }' )
+#now we are safe to filter anchors within 90 bps of an existing mei call.
+# in the future i need to think of a more sophisticated method- this method eliminates my ability to call
+# real insertions near existing ones. this may be bad- plenty of insertions within insertions are known, and 
+# i will NOT be able to detect these. for now, i just need a high-confidence callset so its fine.
