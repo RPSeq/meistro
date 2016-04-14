@@ -25,7 +25,7 @@ class sam_al(object):
 
     def __init__(self, sam, in_sam=False):
         #manual overloading based on arg types
-        if type(sam) == pysam.AlignedRead and in_sam:
+        if type(sam) == pysam.AlignedSegment and in_sam:
             self.read_pysam(sam, in_sam)
         elif type(sam) == str or type(sam) == list:
             self.read(sam)
