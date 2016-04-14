@@ -13,9 +13,9 @@ from argparse import RawTextHelpFormatter
 from string import maketrans
 from ssw_wrap import Aligner
 
-__author__ = "Ryan Smith (ryanpsmith@wustl.edu) with code by Colby Chiang (cc2qe@virginia.edu)"
+__author__ = "Ryan Smith (ryanpsmith@wustl.edu)"
 __version__ = "$Revision: 0.0.1 $"
-__date__ = "$Date: 2014-12-15 11:43 $"
+__date__ = "$Date: 2016-04-11 11:43 $"
 
 # ====================
 # SAM Class
