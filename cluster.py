@@ -22,19 +22,34 @@ __date__ = "$Date: 2016-2-8 13:45 $"
 # it might be a good idea to modify filter_merged.py to change RU and UU to PR and PL.
 # BUT: SR and SL do not have a native anchor orientation; that is, a PL can still be in the positive orientation,
 # but the 5' side of the segment is clipped and remapped to an MEI. how do i account for this in the generic sub_cluster type?
-# class ME_cluster(object):
-#     def __init__(self, cluster):
-#         self.anchors = []
-#         self.anchor_hash = {"PR":[], "SR":[], "PL":[], "SL":[]}
-#         for anch in cluster:
-#             for tag in anch.tags:
-#                 self.anchor_hash[tag.RA_type].append(anchor)
 
+class ME_cluster(object):
+    def __init__(self, cluster):
+        self.anchor_hash = {"PR":[], "SR":[], "PL":[], "SL":[]}
+        self.polyA_hash = {"SR":[], "SL":[]}
 
-#     def process(self):
+        #collect the reads in their appropriate group
+        for anch in cluster:
+            for tag in anch.tags:
+                #separate MEIs als from polyA als.
+                if tag.mei != "polyA":
+                    self.anchor_hash[tag.RA_type].append(anchor)
+                else:
+                    self.polyA_hash[tag.RA_type].append(anchor)
+
+        self.PR = self.anchor_hash["PR"]
+        self.PL = self.anchor_hash["PL"]
+        self.SR = self.anchor_hash["SR"]
+        self.SL = self.anchor_hash["SL"]
+
+        self.pA_SR = self.polyA_hash["SR"]
+        self.pA_SL = self.polyA_hash["SL"]
+
+    def process(self):
+        pass
 
 class mei_tag(object):
-    '''Encapsulates an mei realignment tag'''
+    """Encapsulates an mei realignment tag"""
     def __init__(self, tag):
         tag = tag.split(",")
         self.RA_type = tag[0]
@@ -44,7 +59,7 @@ class mei_tag(object):
         self.ori = tag[4]
 
 class anchor(object):
-    '''Encapsulates an mei realignment anchor'''
+    """Encapsulates an mei realignment anchor"""
     def __init__(self, al, al_bam):
         self.al = al
         self.bam = al_bam
@@ -86,30 +101,36 @@ def scan(bamfile, is_sam):
             outstr = "\t".join([str(item.chrom), str(item.start), str(item.end), item.cigar, item.tag_str, str(num)])
             sys.stdout.write(outstr+"\n")
 
+
+
 def cluster_generator(bamfile, max_dist):
     """Generator function that clusters bam entries and yields a list for each cluster."""
 
-    cluster_id = 0
-    prev = anchor(bamfile.next(), bamfile)
-    clustered = [prev]
+    #cluster_id = 0      #cluster number
+    prev = anchor(bamfile.next(), bamfile)  #grab first alignment
+    cluster = [prev]    #initialize first cluster
 
     for al in bamfile:
 
         curr = anchor(al, bamfile)
-
+        #if the cluster range is exceeded, yield current clust and initialize next cluster
         if (curr.start - prev.end > max_dist) or curr.chrom != prev.chrom:
 
-            yield cluster_id, clustered
-            clustered = [curr]
+            #yield cluster_id, cluster
+            yield cluster
+            cluster = [curr]
             cluster_id += 1
 
         else:
-
-            clustered.append(curr)
+            #otherwise append to cluster
+            cluster.append(curr)
 
         prev = curr
 
-    yield cluster_id, clustered
+    #yield cluster_id, cluster
+    yield cluster
+
+
 
 def get_args():
     parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter, description="\
