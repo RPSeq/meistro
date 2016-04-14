@@ -10,33 +10,34 @@ __version__ = "$Revision: 0.0.1 $"
 __date__ = "$Date: 2016-2-8 13:45 $"
 
 
-#we will have one active cluster for each family (as we see the reads)
-#scanning across. als are collected into their appropriate sub_cluster.
-#when cluster is finished collecting, need to merge subclusters (can be PR,PL,SR,SL (and polyA?))
-class cluster(object):
-    def __init__(self, mei):
-        pass
+# we will have one active cluster for each family (as we see the reads)
+# scanning across. als are collected into their appropriate sub_cluster.
+# when cluster is finished collecting, need to merge subclusters (can be PR,PL,SR,SL (and polyA?))
 
-class sub_cluster(object):
-    def __init__(self, mei, ori, type):
-        self.anchors = []
-        self.type = clust_type
-        #clust type can be pair or split. but, i have a generic L or R orientation for splits
-        # and do not have the same for pairs; however there is no reason i can't.
-        # so, here i define a new convention: + paired anchors are R, as the MEI segment is on the RIGHT from the anchor segment.
-        # and thus, - paired anchors are L, as the MEI segment is on the LEFT relative to the anchor.
-        # now, as long as the orientations for a cluster are concordant, (+-,++) are PR and (-+, --) are PL.
-        # it might be a good idea to modify filter_merged.py to change RU and UU to PR and PL.
-        # BUT: SR and SL do not have a native anchor orientation; that is, a PL can still be in the positive orientation,
-        # but the 5' side of the segment is clipped and remapped to an MEI. how do i account for this in the generic sub_cluster type?
-        self.mei = mei
-        assert ori in set("++", "--", "+-", "-+")
+# clust type can be pair or split. but, i have a generic L or R orientation for splits
+# and do not have the same for pairs; however there is no reason i can't.
+# so, here i define a new convention: + paired anchors are R, as the MEI segment is on the RIGHT from the anchor segment.
+# and thus, - paired anchors are L, as the MEI segment is on the LEFT relative to the anchor.
+# now, as long as the orientations for a cluster are concordant, (+-,++) are PR and (-+, --) are PL.
+# it might be a good idea to modify filter_merged.py to change RU and UU to PR and PL.
+# BUT: SR and SL do not have a native anchor orientation; that is, a PL can still be in the positive orientation,
+# but the 5' side of the segment is clipped and remapped to an MEI. how do i account for this in the generic sub_cluster type?
+# class ME_cluster(object):
+#     def __init__(self, cluster):
+#         self.anchors = []
+#         self.anchor_hash = {"PR":[], "SR":[], "PL":[], "SL":[]}
+#         for anch in cluster:
+#             for tag in anch.tags:
+#                 self.anchor_hash[tag.RA_type].append(anchor)
+
+
+#     def process(self):
 
 class mei_tag(object):
     '''Encapsulates an mei realignment tag'''
     def __init__(self, tag):
         tag = tag.split(",")
-        self.type = tag[0]
+        self.RA_type = tag[0]
         self.mei = tag[1]
         self.start = tag[2]
         self.cigar = tag[3]
@@ -53,18 +54,21 @@ class anchor(object):
         self.end = int(al.aend)
         self.cigar = al.cigarstring
         self.ori = "+"
+
         if al.is_reverse:
             self.ori = "-"
         #load mei_tags for an anchor
         try:
-            self.tags = [mei_tag(tag) for tag in al.opt("RA").split(";")]
+            self.tag_str = al.opt("RA")
+            self.tags = [mei_tag(tag) for tag in self.tag_str.split(";")]
         except:
             sys.stderr.write("cluster.py Error: Reads must have RA tags added from filter_merged.py\n")
             exit(1)
 
-def scan(bamfile, pA_file, is_sam, out_file="/dev/stdout"):
-    """Main BAM parsing loop"""
 
+def scan(bamfile, is_sam):
+    """Main BAM parsing loop"""
+    #max_dist should be somthing like insert size + 2 stdev
     # set input file
     if bamfile == None:
         if is_sam:
@@ -77,44 +81,35 @@ def scan(bamfile, pA_file, is_sam, out_file="/dev/stdout"):
         else:
             in_bam = pysam.Samfile(bamfile, 'rb')
 
-    #out_file = open(out_file, "w")
+    for num, cluster in cluster_generator(in_bam, 1300):
+        for item in cluster:
+            outstr = "\t".join([str(item.chrom), str(item.start), str(item.end), item.cigar, item.tag_str, str(num)])
+            sys.stdout.write(outstr+"\n")
 
-    pA_file = pysam.Samfile(pA_file, 'rb')
-    #fetch like this:#
-    ##################
-    # for pa in pA_file.fetch("3", 0,  115670485):
-    #     count+=1
-    # print(str(count))
-    ###################
+def cluster_generator(bamfile, max_dist):
+    """Generator function that clusters bam entries and yields a list for each cluster."""
 
-    ######class testing#####
-    # in_bam.next()
-    # for i in range(1000):
-    #     #tag = [(SL/SR/UR/UU),mei_name,start,cigar,ori]
-    #     al = in_bam.next()
-    #     anc = anchor(al, in_bam)
-    #     for tag in anc.tags:
-    #         sys.stdout.write("\t".join([anc.name, anc.chrom, str(anc.start),str(anc.end), anc.ori, tag.mei, tag.type, tag.ori])+"\n")
-    ######class testing######
-    curr_cluster = {}
+    cluster_id = 0
+    prev = anchor(bamfile.next(), bamfile)
+    clustered = [prev]
 
-    for al in in_bam:
-        anc = anchor(al, in_bam)
-        for tag in anc.tags:
-            if tag.type == "SL":
-                #something
+    for al in bamfile:
 
-            elif tag.type == "SR":
-                #something
+        curr = anchor(al, bamfile)
 
-            elif tag.type == "UR":
-                #something
+        if (curr.start - prev.end > max_dist) or curr.chrom != prev.chrom:
 
-            elif tag.type == "UU":
-                #something
+            yield cluster_id, clustered
+            clustered = [curr]
+            cluster_id += 1
 
-        
+        else:
 
+            clustered.append(curr)
+
+        prev = curr
+
+    yield cluster_id, clustered
 
 def get_args():
     parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter, description="\
@@ -123,7 +118,6 @@ author: " + __author__ + "\n\
 version: " + __version__ + "\n\
 description: Process cluster.bam in MEIstro pipeline")
     parser.add_argument('-i', '--input', metavar='BAM', required=False, help='Input filtered BAM file')
-    parser.add_argument('-pa', '--polyA', metavar='BAM', required=True, help='Input polyA BAM file')
     parser.add_argument('-S', required=False, action='store_true', help='Input is SAM format')
     parser.add_argument('-o', required=False, help='Output file')
 
@@ -149,7 +143,17 @@ class Usage(Exception):
 
 def main():
     args = get_args()
-    scan(args.input, args.polyA, args.S, args.o)
+
+    #set global clustering parameters
+    # PAIR_CLUST_DIST = 
+    # PAIR_MERGE_DIST = 
+    # PAIR_MERGE_OLAP =
+
+    # SPLIT_CLUST_DIST = 
+    # SPLIT_MERGE_DIST = 
+    # SPLIT_MERGE_OLAP =
+
+    scan(args.input, args.S)
 
 if __name__ == "__main__":
     try:
