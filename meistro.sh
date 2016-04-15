@@ -66,15 +66,17 @@ samtools view ${OUTPUT}.realigned.bam  -H | grep "^@SQ" | cut -f 2 | sed -e 's/S
 #filter the merged bam for anchor-mei pairs or splitters.
 python ./filter_merged.py -i ${OUTPUT}.merged.bam -m ${OUTPUT}.mei_refnames.txt -o >(samtools sort - -f ${OUTPUT}.filtered.bam)
 
-bedtools window -abam ${OUTPUT}.filtered.bam -b repmask/repmask_hg19_Alu.L1.SVA.ERV.nochr.bed -v -w 90 > ${OUTPUT}.repmasked.bam
+# bedtools window -abam ${OUTPUT}.filtered.bam -b repmask/repmask_hg19_Alu.L1.SVA.ERV.nochr.bed -v -w 90 > ${OUTPUT}.repmasked.bam
 
-bamToBed -cigar -i ${OUTPUT}.filtered.bam | paste - <(samtools view ${OUTPUT}.filtered.bam \
-    | vawk '{ for(i = 12; i <= NF; i++) { if($i ~ /^RA/) {print $i;} } }' ) \
-        | bedtools sort | bedtools cluster -d 300 > ${OUTPUT}.clusters.bed
+# bamToBed -cigar -i ${OUTPUT}.filtered.bam | paste - <(samtools view ${OUTPUT}.filtered.bam \
+#     | vawk '{ for(i = 12; i <= NF; i++) { if($i ~ /^RA/) {print $i;} } }' ) \
+#         | bedtools sort | bedtools cluster -d 300 > ${OUTPUT}.clusters.bed
 
-cat ${OUTPUT}.clusters.bed | python ./getclusters.py > ${OUTPUT}.filtered_clusters.bed
+# bamToBed -cigar -i ${OUTPUT}.repmasked.bam | paste - <(samtools view ${OUTPUT}.repmasked.bam \
+#     | vawk '{ for(i = 12; i <= NF; i++) { if($i ~ /^RA/) {print $i;} } }' ) \
+#         | bedtools sort | bedtools cluster -d 300 > ${OUTPUT}.rep_clusters.bed
 
-#now we are safe to filter anchors within 90 bps of an existing mei call.
-# in the future i need to think of a more sophisticated method- this method eliminates my ability to call
-# real insertions near existing ones. this may be bad- plenty of insertions within insertions are known, and 
-# i will NOT be able to detect these. for now, i just need a high-confidence callset so its fine.
+# cat ${OUTPUT}.clusters.bed | python ./getclusters.py > ${OUTPUT}.filtered_clusters.bed
+
+# cat ${OUTPUT}.rep_clusters.bed | python ./getclusters.py > ${OUTPUT}.rep_filtered_clusters.bed
+

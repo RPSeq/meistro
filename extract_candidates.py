@@ -1,16 +1,13 @@
 #!/usr/bin/env python
 
-# for tgi cluster:
-#/gapp/x64linux/opt/pythonbrew/venvs/Python-2.7.6/gemini/bin/python
-# for uva cluster:
-
-import pysam
 import sys
-import argparse
+from argparse import RawTextHelpFormatter, ArgumentParser
 from itertools import izip
-from intervaltree import IntervalTree
-from argparse import RawTextHelpFormatter
 from string import maketrans
+
+#installed modules
+import pysam
+from intervaltree import IntervalTree
 from ssw_wrap import Aligner
 
 __author__ = "Ryan Smith (ryanpsmith@wustl.edu)"
@@ -27,8 +24,10 @@ class sam_al(object):
         #manual overloading based on arg types
         if type(sam) == pysam.AlignedSegment and in_sam:
             self.read_pysam(sam, in_sam)
+
         elif type(sam) == str or type(sam) == list:
             self.read(sam)
+
         else:
             exit("Error creating sam_al.\nUsage:sam_al(samlist), \
                 sam_al(samstr), sam_al(pysam.al, pysam.infile)")
@@ -48,9 +47,11 @@ class sam_al(object):
         self.seq = sam[9]
         self.qual = sam[10]
         self.tags = {}
+
         for i in range(10,len(sam)):
             tag, ttype, val = sam[i].split(":")
             tags[tag]=(val)
+
         return
 
     def read_pysam(self, al, in_sam):
@@ -78,24 +79,34 @@ class sam_al(object):
         self.is_paired = al.is_paired
         return
 
-    def __str__(self, tag=True):
+    def __str__(self, pair_tag=True):
         """Returns the sam record as a single string"""
+
         name = self.qname
-        if tag:
+
+        if pair_tag:
+
             if self.is_read1:
                 name = self.qname+"_1"
+
             elif self.is_read2:
                 name = self.qname+"_2"
+
         outlist = [name, str(self.flag), self.rname, 
                     str(self.pos), str(self.mapq), self.cigarstring, 
-                    self.rnext, str(self.pnext), str(self.tlen), self.seq, self.qual]
+                    self.rnext, str(self.pnext), str(self.tlen), 
+                    self.seq, self.qual]
 
         for tag, val in self.tags.viewitems():
+
             if type(val)==int:
                 ttype = 'i'
+
             else:
                 ttype = 'Z'
+
             outlist.append("{0}:{1}:{2}".format(tag, ttype, val))
+
         return "\t".join(outlist)+"\n"
 
 #main loop function
@@ -105,40 +116,36 @@ def extract_candidates(bamfile,
                         fastq_out,
                         clip_len, 
                         single_only, 
-                        max_opp_clip=7):
+                        max_opp_clip):
     # set input file
     if bamfile == None:
+
         if is_sam:
             in_bam = pysam.Samfile("-", "r")
+
         else:
             in_bam = pysam.Samfile('-', 'rb')
     else:
+
         if is_sam:
             in_bam = pysam.Samfile(bamfile, 'r')
+
         else:
             in_bam = pysam.Samfile(bamfile, "rb")
 
-    #generate header for anchors output file
-    header = "@HD\tVN:1.3\tSO:unsorted\n"
-    header+="\n".join(in_bam.text.split("\n")[1:])
-    
-    #open and print header for anchor and polyA bams
+    header = "@HD\tVN:1.3\tSO:unsorted\n"   #write header to SAM output
+    header+="\n".join(in_bam.text.split("\n")[1:]) 
     anchors_out = open(anchors_out, 'w')
     anchors_out.write(header)
 
-
-    #allow - input argument
-    if fastq_out == "-":
+    if fastq_out == "-":                #allow - output argument
         fastq_out = "/dev/stdout"
-    fastq_out = open(fastq_out, 'w')
 
+    fastq_out = open(fastq_out, 'w')    #open fastq output
 
-
-    #these collect output strings,
-    #to be written to output file in batches to reduce IO
+    batchsize = 1000000
     anchor_batch = []
     fq_batch = []
-
 
     #create striped smith-waterman aligner object
     #calibrated so gaps are not allowed, only mismatches.
@@ -150,14 +157,12 @@ def extract_candidates(bamfile,
                 report_secondary=False,
                 report_cigar=True)
 
-    #this sets the batch size
-    batchsize = 1000000
-
     #iterate over the als
     for al in in_bam:
         anchor = False
         is_clip = False
         fastq_p, fastq_s = False, False
+
         #check if the batches need to be printed
         if len(anchor_batch) >= batchsize:
             anchors_out.write("".join(anchor_batch))
@@ -174,15 +179,20 @@ def extract_candidates(bamfile,
         #check if part of discordant pair.
         #should add zscore test for reads mapped to close/far together 
         #(and not use proper pair flag)
-        if (al.rname != al.mrnm) or (al.is_reverse == al.mate_is_reverse) or \
-            (al.is_unmapped != al.mate_is_unmapped) or \
-            (not al.is_proper_pair) or (al.mapq == 0 and al.opt('MQ') > 0):
+        conditions = [
+            al.mapq == 0 and al.opt('MQ') > 0,
+            al.is_unmapped != al.mate_is_unmapped,
+            al.is_reverse == al.mate_is_reverse,
+            not al.is_proper_pair,
+            al.rname != al.mrnm
+            ]
 
+        if any(conditions):
             #use check pairs to determine which side to align (or both)
-            fastq_p, anchor = check_pairs(al, in_bam)
+            remap, anchor = check_pairs(al, in_bam)
 
-            if fastq_p:
-                fq_batch.append(fastq_p)
+            if remap:
+                fq_batch.append(remap)
             if anchor: 
                 al = anchor
 
@@ -191,16 +201,18 @@ def extract_candidates(bamfile,
         if is_clip:
             fastq_s = fastq_str(al, is_clip)    # get fastq string
             fq_batch.append(fastq_s)            # append to fq output batch
-            seq = fastq_s.split("\n")[1]        # get just the seq line
-            ssw_al = check_polyA(seq, polyA_ssw) #pass to polyA function
 
-            #if we got a polyA hit,
-            if ssw_al:
-                al_tags = al.opt("TY").split(",")   #get the al's tags
-                cigar, ori = ssw_al                 # get the polyA result
-                #need to add a new tag
-                if 'ASL' in al_tags:                #add the SR or SL -polyA tag.
+            #pass to polyA function
+            ssw_al = check_polyA(fastq_s.split("\n")[1], polyA_ssw)
+
+
+            if ssw_al:  #if we got a polyA hit,
+                al_tags = al.opt("TY").split(",")  #get the al's tags
+                cigar, ori = ssw_al                # get the polyA result
+
+                if 'ASL' in al_tags:               #add the SR or SL -polyA tag.
                     pAtag = "SL"
+
                 elif 'ASR' in al_tags:
                     pAtag = "SR"
 
@@ -225,8 +237,8 @@ def extract_candidates(bamfile,
 def reverse_complement(sequence):
     """returns the reverse complement of the input DNA sequence"""
 
-    complement = maketrans("ACTGactg", "TGACtgac") #define translation table for DNA
-    return sequence[::-1].translate(complement)  #return the reversed and translated sequence
+    complement = maketrans("ACTGactg", "TGACtgac")  #DNA translation table
+    return sequence[::-1].translate(complement)     #reverse and translate
 
 def hamming(str1, str2):
     """Returns the hamming distance between two strings of equal length"""
@@ -250,13 +262,11 @@ def fastq_str(al, is_clip=False):
             #if a tag is ASR or ASL, strip the A (fastq is NOT the anchor)
             #and pull the clipped portion of the read
             if tags[i] == "ASL":
-                # tags[i]=tags[i][1:]
                 tags=tags[i][1:]
                 seq = seq[:al.qstart]
                 quals = quals[:al.qstart]
 
             elif tags[i] == "ASR":
-                # tags[i]=tags[i][1:]
                 tags=tags[i][1:]
                 seq = seq[al.qend:]
                 quals = quals[al.qend:]
@@ -268,44 +278,37 @@ def fastq_str(al, is_clip=False):
 
     #add read # tags
     if al.is_read1:
-        name += "_1" 
+        name += "_1"
+
     elif al.is_read2:
         name += "_2"
 
-
-    #return the fastq string, appending tags to read name (rname:tags)
-    #NOTE: typical fastq format is rname<\t>comment
-    #(BWA can add these FASTQ comments to the output bam as tags, but other aligners cannot.)
+    #   return the fastq string, appending tags to read name (rname:tags)
+    #   (BWA can add these FASTQ comments (rname<\t>comment) 
+    #   to the output bam, but MOSAIK cannot.)
     return "@"+name+":"+tags+"\n"+seq+"\n+\n"+quals+"\n"
 
 def check_pairs(al1, in_bam):
     """Determines if a read from a pair is a UU, UR, or RU."""
-    #default return values are False
+
     anc, fq = False, False
-    #if this read has been marked as a clipper,
+    
+    mate_mapq = al1.opt('MQ')   #get mate mapq
 
-    #get mate mapq
-    mate_mapq = al1.opt('MQ')
-
-    #if both are unique:
-    if al1.mapq > 0 and mate_mapq > 0:
+    if al1.mapq > 0 and mate_mapq > 0:  #if both are unique:
         al1.setTag("TY","UU")
         fq = fastq_str(al1)
-        anc = al1
+        anc = al1               #realign both
 
-    #if this al is not unique,
-    elif al1.mapq == 0 and mate_mapq > 0:
-        #realign this al
+    elif al1.mapq == 0 and mate_mapq > 0:   #if this al is not unique,
         al1.setTag("TY","RU")
+        fq = fastq_str(al1)     #realign this al only
         anc = False
-        fq = fastq_str(al1)
     
-    #if other al is not unique,
-    elif al1.mapq > 0 and mate_mapq == 0:
-        #realign other al, not this one (unless clipped).
+    elif al1.mapq > 0 and mate_mapq == 0:   #if other al is not unique,
         al1.setTag("TY","UR")
         fq = False
-        anc = al1
+        anc = al1               #realign other al only
 
     return fq, anc
 
@@ -321,18 +324,23 @@ def check_clip(al,
     if (al.mapq == 0 or len(cigar)) < 2:
         return al, False
 
-    if disc_pair:
+    try:
         tag = al.opt("TY")
+    except:
+        tag = False
 
     #if side=="L":
     #Clipped on L side
     if cigar[0][0] == 4 and cigar[0][1] >= clip_len:
         #if opposite is not clipped more than max opposite clip len, write for realignment
         if cigar[-1][0] != 4 or (cigar[-1][0] == 4 and cigar[-1][1] <= max_opp_clip):
-            if disc_pair:
+
+            if tag:
                 al.setTag("TY",tag+",ASL")
+
             else:
                 al.setTag("TY","ASL")
+
             return al, True
 
     #elif side=="R":
@@ -340,16 +348,18 @@ def check_clip(al,
     elif cigar[-1][0] == 4 and cigar[-1][1] >= clip_len:
     #if opposite is not clipped more than max opposite clip len, write for realignment
         if cigar[0][0] != 4 or (cigar[0][0] == 4 and cigar[0][1] <= max_opp_clip):
-            if disc_pair:
+
+            if tag:
                 al.setTag("TY",tag+",ASR")
+
             else:
                 al.setTag("TY","ASR")
+
             return al, True
 
     return al, False
 
-def check_polyA(seq, 
-            polyA_ssw):
+def check_polyA(seq, polyA_ssw):
 
     hit_f = polyA_ssw.align(seq, min_score=10, min_len=12)
     hit_r = polyA_ssw.align(reverse_complement(seq), min_score=10,min_len=12)
@@ -357,6 +367,7 @@ def check_polyA(seq,
     cutoff = 0.8
     f_percent = 0
     r_percent = 0
+
     if hit_f:
         f_len = (hit_f.query_end-hit_f.query_begin)+1
         f_percent = hit_f.score/float(f_len*4)
@@ -370,10 +381,12 @@ def check_polyA(seq,
             return hit_f.cigar, "+"
         else:
             return hit_r.cigar, "-"
+
     elif f_percent >= cutoff:
         return hit_f.cigar, "+"
     elif r_percent >= cutoff:
         return hit_r.cigar, "-"
+
     return False
 
 def zscore(val, mean, stdev):
@@ -384,6 +397,7 @@ def filter_excludes(variants, exclude_file):
     #excludes is a dict of IntervalTrees (one for each chromosome)
     excludes = defaultdict(IntervalTree)
     filtered = [] #list to be populated with filtered items
+
     for line in exclude_file:
         if line[0] != "#":  #skip headers
             line = line.strip().split("\t")
@@ -392,35 +406,49 @@ def filter_excludes(variants, exclude_file):
             stop = int(line[2])
 
             #add chrom:interval to excludes
-            excludes[chrom].addi(start, stop, 1) #intervaltree.addi(start, stop, data)
+            #intervaltree.addi(start, stop, data)
+            excludes[chrom].addi(start, stop, 1)
 
     #could probably speed this up using a mapping function instead
     for variant in variants:
         #get interval tree for var chrom, and query with the position.
         if len(excludes[variant.chrom][variant.pos]) == 0:
             filtered.append(variant)
+
     return filtered
 
 def get_args():
-    parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter, description="\
-bamgroupreads.py\n\
-author: " + __author__ + "\n\
-version: " + __version__ + "\n\
-description: Extract candidates for MEI re-alignment")
-    parser.add_argument('-i', '--input', metavar='BAM', required=False, help='Input BAM file [stdin]')
-    parser.add_argument('-a', '--anchors', metavar='SAM', required=True, help='Output anchors SAM')
-    parser.add_argument('-f', '--fastq', metavar='FASTQ', required=True, help='Output realign FASTQ')
-    parser.add_argument('-c', '--clip', metavar='LEN', required=True, type=int, help='Minimum clip length')
-    parser.add_argument('-oc', '--opclip', metavar='LEN', required=False, type=int, help='Max opposite clip length')
-    parser.add_argument('-s', '--single', required=False, action='store_true', help='Input single-ended')
-    parser.add_argument('-S', required=False, action='store_true', help='Input is SAM format')    
+    parser = ArgumentParser(
+        formatter_class=RawTextHelpFormatter, add_help=False)
+
+    parser.add_argument('-a', metavar='SAM_OUT', required=True, 
+                        help='Output anchors SAM (required)')
+
+    parser.add_argument('-f', metavar='FASTQ_OUT', required=True,
+                        help='Output FASTQ for realignment (required)')
+
+    parser.add_argument('-i', metavar='BAM', 
+                        help='Input BAM (stdin)')
+
+    parser.add_argument('-c', metavar='MIN_CLIP', type=int, default=25,
+                        help='Minimum clip length (25)')
+
+    parser.add_argument('-oc', metavar='MAX_OPP_CLIP', type=int, default=7, 
+                        help='Maximum opposite clip length (7)')
+
+    parser.add_argument('-s', action='store_true', help='Input single-ended')
+
+    parser.add_argument('-S', action='store_true', help='Input is SAM format')  
+
+    parser.add_argument('-h','--help', action='help') 
+
 
 
     # parse the arguments
     args = parser.parse_args()
     
     # bail if no BAM file
-    if args.input is None:
+    if args.i is None:
         if sys.stdin.isatty():
             parser.print_help()
             exit(1)
@@ -437,14 +465,19 @@ class Usage(Exception):
         self.msg = msg
 
 def main():
+
     args = get_args()
 
-    extract_candidates(args.input, args.S, args.anchors, args.fastq, args.clip, args.single, args.opclip)
+    extract_candidates(args.i, args.S, args.a, 
+                        args.f, args.c, args.s, args.oc)
 
 if __name__ == "__main__":
     try:
         sys.exit(main())
     except IOError, e:
-        if e.errno != 32:  # ignore SIGPIPE
+        if e.errno != 32:  # ignore SIGPIPE error for streaming
             raise
+
+
+
 

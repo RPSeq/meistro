@@ -4,7 +4,6 @@ import argparse
 from argparse import RawTextHelpFormatter
 from collections import defaultdict
 
-
 __author__ = "Ryan Smith (ryanpsmith@wustl.edu)"
 __version__ = "$Revision: 0.0.1 $"
 __date__ = "$Date: 2016-2-8 13:45 $"
@@ -23,9 +22,28 @@ __date__ = "$Date: 2016-2-8 13:45 $"
 # BUT: SR and SL do not have a native anchor orientation; that is, a PL can still be in the positive orientation,
 # but the 5' side of the segment is clipped and remapped to an MEI. how do i account for this in the generic sub_cluster type?
 
-class ME_cluster(object):
+
+from collections import defaultdict
+hash = defaultdict(dict)
+
+sides = ["PR","PL","SR","Sl"]
+meis = ["AL", "L1", "SV", "HE"]
+for mei in meis:
+    for side in sides:
+        hash[mei][side] = []
+#{
+#'SV': {'PR': [], 'SR': [], 'PL': [], 'Sl': []}, 
+#'HE': {'PR': [], 'SR': [], 'PL': [], 'Sl': []}, 
+#'AL': {'PR': [], 'SR': [], 'PL': [], 'Sl': []}, 
+#'L1': {'PR': [], 'SR': [], 'PL': [], 'Sl': []}
+#}
+
+class ReadCluster(object):
     def __init__(self, cluster):
-        self.anchor_hash = {"PR":[], "SR":[], "PL":[], "SL":[]}
+
+class Cluster(object):
+    def __init__(self, cluster):
+        self.mei_hash = {"PR":[], "SR":[], "PL":[], "SL":[]}
         self.polyA_hash = {"SR":[], "SL":[]}
 
         #collect the reads in their appropriate group
@@ -33,22 +51,18 @@ class ME_cluster(object):
             for tag in anch.tags:
                 #separate MEIs als from polyA als.
                 if tag.mei != "polyA":
-                    self.anchor_hash[tag.RA_type].append(anchor)
+                    self.mei_hash[tag.RA_type].append(anchor)
                 else:
                     self.polyA_hash[tag.RA_type].append(anchor)
 
-        self.PR = self.anchor_hash["PR"]
-        self.PL = self.anchor_hash["PL"]
-        self.SR = self.anchor_hash["SR"]
-        self.SL = self.anchor_hash["SL"]
-
-        self.pA_SR = self.polyA_hash["SR"]
-        self.pA_SL = self.polyA_hash["SL"]
-
     def process(self):
-        pass
 
-class mei_tag(object):
+        for RA_type, anchors in self.mei_hash:
+            for anch in anchors:
+
+
+
+class meiTag(object):
     """Encapsulates an mei realignment tag"""
     def __init__(self, tag):
         tag = tag.split(",")
@@ -75,7 +89,7 @@ class anchor(object):
         #load mei_tags for an anchor
         try:
             self.tag_str = al.opt("RA")
-            self.tags = [mei_tag(tag) for tag in self.tag_str.split(";")]
+            self.tags = [meiTag(tag) for tag in self.tag_str.split(";")]
         except:
             sys.stderr.write("cluster.py Error: Reads must have RA tags added from filter_merged.py\n")
             exit(1)
@@ -96,17 +110,12 @@ def scan(bamfile, is_sam):
         else:
             in_bam = pysam.Samfile(bamfile, 'rb')
 
-    for num, cluster in cluster_generator(in_bam, 1300):
-        for item in cluster:
-            outstr = "\t".join([str(item.chrom), str(item.start), str(item.end), item.cigar, item.tag_str, str(num)])
-            sys.stdout.write(outstr+"\n")
-
-
+    for group in cluster_generator(in_bam, PRECLUSTER_DISTANCE):
+        cluster = ME_cluster(group)
 
 def cluster_generator(bamfile, max_dist):
     """Generator function that clusters bam entries and yields a list for each cluster."""
 
-    #cluster_id = 0      #cluster number
     prev = anchor(bamfile.next(), bamfile)  #grab first alignment
     cluster = [prev]    #initialize first cluster
 
@@ -116,10 +125,8 @@ def cluster_generator(bamfile, max_dist):
         #if the cluster range is exceeded, yield current clust and initialize next cluster
         if (curr.start - prev.end > max_dist) or curr.chrom != prev.chrom:
 
-            #yield cluster_id, cluster
             yield cluster
             cluster = [curr]
-            cluster_id += 1
 
         else:
             #otherwise append to cluster
@@ -127,7 +134,6 @@ def cluster_generator(bamfile, max_dist):
 
         prev = curr
 
-    #yield cluster_id, cluster
     yield cluster
 
 
@@ -166,6 +172,7 @@ def main():
     args = get_args()
 
     #set global clustering parameters
+    PRECLUSTER_DISTANCE = 1300
     # PAIR_CLUST_DIST = 
     # PAIR_MERGE_DIST = 
     # PAIR_MERGE_OLAP =

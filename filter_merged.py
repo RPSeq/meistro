@@ -1,9 +1,5 @@
 #!/usr/bin/env python
 
-# for tgi cluster:
-#/gapp/x64linux/opt/pythonbrew/venvs/Python-2.7.6/gemini/bin/python
-# for uva cluster:
-
 import pysam
 import sys
 import argparse
@@ -12,10 +8,9 @@ import string
 from string import *
 from collections import defaultdict
 
-__author__ = "Ryan Smith (ryanpsmith@wustl.edu) with code by Colby Chiang (cc2qe@virginia.edu)"
+__author__ = "Ryan Smith (ryanpsmith@wustl.edu)"
 __version__ = "$Revision: 0.0.1 $"
-__date__ = "$Date: 2014-12-15 11:43 $"
-
+__date__ = "$Date: 2016-04-13 10:52 $"
 
 # ============================================
 # functions
@@ -26,13 +21,18 @@ def filter_merged(bamfile, is_sam, out_bam, mei_names):
 
     # set input file
     if bamfile == None:
+
         if is_sam:
             in_bam = pysam.Samfile('-', 'r')
+
         else:
             in_bam = pysam.Samfile('-', 'rb')
+            
     else:
+
         if is_sam:
             in_bam = pysam.Samfile(bamfile, 'r')
+
         else:
             in_bam = pysam.Samfile(bamfile, 'rb')
 
