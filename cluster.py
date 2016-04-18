@@ -73,18 +73,21 @@ class Cluster(object):
 
         if not anch_list: return False
 
+        read_side = side[1]
+        read_type = side[0]
         #if MEI on right side: 
-        if side[1] == "R":
+        if read_side == "R":
             #re-sort anchors by end position
             anch_list.sort(key=lambda x: x.end)
 
-        if side[0] == "S":
-            clusters = self.clust(anch_list, SPLIT_CLUST_DIST, side[1])
+        #set appropriate distance param
+        if read_type == "S":
+            dist = SPLIT_CLUST_DIST
 
-        elif side[0] == "P":
-            clusters = self.clust(anch_list, PAIR_CLUST_DIST, side[1])
+        elif read_type == "P":
+            dist = PAIR_CLUST_DIST
 
-        return clusters
+        return self.clust(anch_list, dist, read_side)
 
     def clust(self, clust, distance, side):
         clusters = []
@@ -134,8 +137,9 @@ class Cluster(object):
                             for tag in anch.tags:
                                 if tag.RA_type == side:
                                     mei = tag.mei
-                            outstr+="\t".join([anch.chrom, str(anch.start), str(anch.end), anch.name, mei_fam, mei, ori, side, "clust_"+str(clust_id), str(id_num)])+"\n"
-                    clust_id+=1
+                                    m_cigar = tag.cigar
+                            outstr+="\t".join([anch.chrom, str(anch.start), str(anch.end), anch.name, mei_fam, mei, ori, side, "clust_"+str(clust_id), str(id_num), anch.cigar, m_cigar])+"\n"
+                        clust_id+=1
         return outstr
 
 class meiTag(object):
