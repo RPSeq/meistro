@@ -89,7 +89,7 @@ class Cluster(object):
 
         else:
             return False
-=======
+
                     self.hash[tag.mei[:2]][tagstr].append(anch)
                 else:
                     self.polyA_hash[tagstr].append(anch)
@@ -101,7 +101,6 @@ class Cluster(object):
 
         for side, anchs in self.polyA_hash.iteritems():
             self.polyA_hash[side] = self.sub_cluster(anchs, side)
->>>>>>> bbe89d81f9a1b31c4a9831d0b13f1f959f563fde
 
     def sub_cluster(self, anch_list, side):
 
@@ -120,10 +119,6 @@ class Cluster(object):
 
         return clusters
 
-<<<<<<< HEAD
-=======
-
->>>>>>> bbe89d81f9a1b31c4a9831d0b13f1f959f563fde
     def clust(self, clust, distance, side):
         clusters = []
         prev = None
@@ -214,20 +209,6 @@ def scan(bamfile, is_sam):
     for group in cluster_generator(in_bam, PRECLUSTER_DISTANCE):
         count += 1
         clust = Cluster(group)
-<<<<<<< HEAD
-        if clust.filter():
-            myhash = clust.hash
-            for mei_fam, sides in myhash.iteritems():
-                for side, oris in sides.iteritems():
-                    for ori, clusters in oris.iteritems():
-                        if clusters:
-                            for clust in clusters:
-                                if clust:
-                                    for anch in clust:
-                                        print(anch.chrom, anch.start, anch.end, ori, mei_fam, side)
-=======
-        print(clust.hash)
->>>>>>> bbe89d81f9a1b31c4a9831d0b13f1f959f563fde
 
 def cluster_generator(bamfile, max_dist):
     """Generator function that clusters bam entries and yields a list for each cluster."""
