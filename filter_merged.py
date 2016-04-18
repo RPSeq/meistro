@@ -130,6 +130,10 @@ class Namegroup(object):
         if mei.is_reverse:
             ori = "-"
 
+        a_ori = "+"
+        if anchor.is_reverse:
+            a_ori = "-"
+
         try:
             # DON"T WORRY: anchors can have 2 items in their TY tags,
             # but any single MEI realignment can only have one TY tag. 
@@ -148,7 +152,7 @@ class Namegroup(object):
             RAtag = RA_type+","+",".join([self.bam.getrname(mei.rname), 
                                                 str(mei.pos), 
                                                 mei.cigarstring, 
-                                                ori])
+                                                a_ori+ori])
         else:
             #when we use the Mobster Mosaik moblist ref, L1HS has a polyA tail starting at 6017 bp.
             # this seems to "soak up" a lot of actual polyA sequences, so lets just ignore it for now
@@ -157,7 +161,7 @@ class Namegroup(object):
                 if self.bam.getrname(mei.rname) == "L1HS" and mei.pos >= 6000:
                     return RAtag
                     
-            RAtag += ";" + RA_type+","+",".join([self.bam.getrname(mei.rname), str(mei.pos), mei.cigarstring, ori])
+            RAtag += ";" + RA_type+","+",".join([self.bam.getrname(mei.rname), str(mei.pos), mei.cigarstring, a_ori+ori])
 
         return RAtag
 

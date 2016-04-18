@@ -209,6 +209,9 @@ def extract_candidates(bamfile,
             if ssw_al:  #if we got a polyA hit,
                 al_tags = al.opt("TY").split(",")  #get the al's tags
                 cigar, ori = ssw_al                # get the polyA result
+                a_ori = "+"
+                if al.is_reverse:
+                    a_ori = "-"
 
                 if 'ASL' in al_tags:               #add the SR or SL -polyA tag.
                     pAtag = "SL"
@@ -217,7 +220,7 @@ def extract_candidates(bamfile,
                     pAtag = "SR"
 
                 #generate the new tag and update al.
-                newtag = pAtag+","+"polyA,0,"+cigar+","+ori
+                newtag = pAtag+","+"polyA,0,"+cigar+","+a_ori+ori
                 al.setTag("RA",newtag)
 
         if anchor or is_clip:
