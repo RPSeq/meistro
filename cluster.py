@@ -26,9 +26,6 @@ class Cluster(object):
         #mei_family, anchor_type, orientation : anchors
         self.hash = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
 
-        #anchor_type, orientation : anchors
-        self.polyA_hash = defaultdict(lambda: defaultdict(list))
-
         #load the anchors into the hash
         if cluster: 
             self.load(cluster)
@@ -37,22 +34,15 @@ class Cluster(object):
     def load(self, cluster):
         for anch in cluster:
             for tag in anch.tags:
-                tagstr = tag.RA_type
-                #separate MEIs als from polyA als.
-                if tag.mei != "polyA":
-                    self.hash[tag.mei[:2]][tagstr][tag.ori].append(anch)
-                else:
-                    self.polyA_hash[tagstr][tag.ori].append(anch)
+                #for now, the mei_refname's first two chars are the mei_family hash keys
+                self.hash[tag.mei[:2]][tag.RA_type][tag.ori].append(anch)
+
 
     def generate_sub_clusters(self):
         for mei_fam, sides in self.hash.iteritems():
             for side, oris in sides.iteritems():
                 for ori, anchs in oris.iteritems():
                     self.hash[mei_fam][side][ori] = self.sub_cluster(anchs, side)
-
-        for side, oris in self.polyA_hash.iteritems():
-            for ori, anchs in oris.iteritems():
-                self.polyA_hash[side][ori] = self.sub_cluster(anchs, side)
 
     def filter(self):
         """Define filter for clusters"""
@@ -62,12 +52,10 @@ class Cluster(object):
             for side, oris in sides.iteritems():
                 for ori, clusts in oris.iteritems():
                     for clust in clusts:
-                        mei_hit +=1
-
-        for side, oris in self.polyA_hash.iteritems():
-            for ori, clusts in oris.iteritems():
-                for clust in clusts:
-                    polyA_hit +=1
+                        if mei_fam == "po":
+                            polyA_hit += 1
+                        else:
+                            mei_hit += 1
 
         if mei_hit > 1:
             return True
@@ -80,10 +68,6 @@ class Cluster(object):
             for side, oris in sides.iteritems():
                 for ori, anchs in oris.iteritems():
                     self.hash[mei_fam][side][ori] = self.sub_cluster(anchs, side)
-
-        for side, oris in self.polyA_hash.iteritems():
-            for ori, anchs in oris.iteritems():
-                self.polyA_hash[side][ori] = self.sub_cluster(anchs, side)
 
     def sub_cluster(self, anch_list, side):
 
@@ -141,6 +125,7 @@ class Cluster(object):
 
     def __str__(self, id_num=False):
         outstr = ""
+        clust_id = 0
         for mei_fam, sides in self.hash.iteritems():
             for side, oris in sides.iteritems():
                 for ori, clusters in oris.iteritems():
@@ -149,7 +134,8 @@ class Cluster(object):
                             for tag in anch.tags:
                                 if tag.RA_type == side:
                                     mei = tag.mei
-                            outstr+="\t".join([anch.chrom, str(anch.start), str(anch.end), mei_fam, mei, ori, side, str(id_num)])+"\n"
+                            outstr+="\t".join([anch.chrom, str(anch.start), str(anch.end), anch.name, mei_fam, mei, ori, side, "clust_"+str(clust_id), str(id_num)])+"\n"
+                    clust_id+=1
         return outstr
 
 class meiTag(object):
