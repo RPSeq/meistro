@@ -1,7 +1,6 @@
 import pysam
 import sys
-import argparse
-from argparse import RawTextHelpFormatter
+from argparse import RawTextHelpFormatter, ArgumentParser
 from collections import defaultdict
 
 __author__ = "Ryan Smith (ryanpsmith@wustl.edu)"
@@ -22,44 +21,100 @@ __date__ = "$Date: 2016-2-8 13:45 $"
 # BUT: SR and SL do not have a native anchor orientation; that is, a PL can still be in the positive orientation,
 # but the 5' side of the segment is clipped and remapped to an MEI. how do i account for this in the generic sub_cluster type?
 
-
-from collections import defaultdict
-hash = defaultdict(dict)
-
-sides = ["PR","PL","SR","Sl"]
-meis = ["AL", "L1", "SV", "HE"]
-for mei in meis:
-    for side in sides:
-        hash[mei][side] = []
-#{
-#'SV': {'PR': [], 'SR': [], 'PL': [], 'Sl': []}, 
-#'HE': {'PR': [], 'SR': [], 'PL': [], 'Sl': []}, 
-#'AL': {'PR': [], 'SR': [], 'PL': [], 'Sl': []}, 
-#'L1': {'PR': [], 'SR': [], 'PL': [], 'Sl': []}
-#}
-
-class ReadCluster(object):
-    def __init__(self, cluster):
-
 class Cluster(object):
-    def __init__(self, cluster):
-        self.mei_hash = {"PR":[], "SR":[], "PL":[], "SL":[]}
-        self.polyA_hash = {"SR":[], "SL":[]}
+    def __init__(self, cluster=False):
+        self.anchor_types = ["PR","PL","SR","SL"]
+        self.meis = ["Al", "L1", "SV", "HE"]
+        self.hash = defaultdict(dict)
+        self.polyA_hash = {"SR": [], "SL": []}
 
-        #collect the reads in their appropriate group
+        #create hash structure
+        for mei in self.meis:
+            for side in self.anchor_types:
+                self.hash[mei][side] = []
+        #{
+        #'SV': {'PR': [], 'SR': [], 'PL': [], 'Sl': []}, 
+        #'HE': {'PR': [], 'SR': [], 'PL': [], 'Sl': []}, 
+        #'AL': {'PR': [], 'SR': [], 'PL': [], 'Sl': []}, 
+        #'L1': {'PR': [], 'SR': [], 'PL': [], 'Sl': []}
+        #}
+
+        #load the anchors into the hash
+        if cluster: 
+            self.load(cluster)
+            self.generate_sub_clusters()
+
+    def load(self, cluster):
         for anch in cluster:
             for tag in anch.tags:
+                tagstr = tag.RA_type
                 #separate MEIs als from polyA als.
                 if tag.mei != "polyA":
-                    self.mei_hash[tag.RA_type].append(anchor)
+                    self.hash[tag.mei[:2]][tagstr].append(anch)
                 else:
-                    self.polyA_hash[tag.RA_type].append(anchor)
+                    self.polyA_hash[tagstr].append(anch)
 
-    def process(self):
+    def generate_sub_clusters(self):
+        for mei_fam, sides in self.hash.iteritems():
+            for side, anchs in sides.iteritems():
+                self.hash[mei_fam][side] = self.sub_cluster(anchs, side)
 
-        for RA_type, anchors in self.mei_hash:
-            for anch in anchors:
+        for side, anchs in self.polyA_hash.iteritems():
+            self.polyA_hash[side] = self.sub_cluster(anchs, side)
 
+    def sub_cluster(self, anch_list, side):
+
+        if not anch_list: return False
+
+        #if MEI on right side: 
+        if side[1] == "R":
+            #re-sort anchors by end position
+            anch_list.sort(key=lambda x: x.end)
+
+        if side[0] == "S":
+            clusters = self.clust(anch_list, SPLIT_CLUST_DIST, side[1])
+
+        elif side[0] == "P":
+            clusters = self.clust(anch_list, PAIR_CLUST_DIST, side[1])
+
+        return clusters
+
+
+    def clust(self, clust, distance, side):
+        clusters = []
+        prev = None
+
+        for anch in clust:
+            if not prev:
+                prev = anch
+                curr_clust = [prev]
+                continue
+
+            curr = anch
+
+            if not self.check_dist(curr, prev, distance, side):
+                clusters.append(curr_clust)
+                curr_clust = [curr]
+
+            else:
+                curr_clust.append(curr)
+
+            prev = curr
+
+        clusters.append(curr_clust)
+
+        return clusters
+
+    def check_dist(self, curr, prev, distance, side):
+        if side == "L":
+            if curr.start - prev.start > distance:
+                return False
+
+        if side == "R":
+            if curr.end - prev.end > distance:
+                return False
+
+        return True
 
 
 class meiTag(object):
@@ -93,7 +148,8 @@ class anchor(object):
         except:
             sys.stderr.write("cluster.py Error: Reads must have RA tags added from filter_merged.py\n")
             exit(1)
-
+#####################################################################
+#####################################################################
 
 def scan(bamfile, is_sam):
     """Main BAM parsing loop"""
@@ -110,8 +166,11 @@ def scan(bamfile, is_sam):
         else:
             in_bam = pysam.Samfile(bamfile, 'rb')
 
+    count = 0
     for group in cluster_generator(in_bam, PRECLUSTER_DISTANCE):
-        cluster = ME_cluster(group)
+        count += 1
+        clust = Cluster(group)
+        print(clust.hash)
 
 def cluster_generator(bamfile, max_dist):
     """Generator function that clusters bam entries and yields a list for each cluster."""
@@ -139,26 +198,29 @@ def cluster_generator(bamfile, max_dist):
 
 
 def get_args():
-    parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter, description="\
-cluster.py\n\
-author: " + __author__ + "\n\
-version: " + __version__ + "\n\
-description: Process cluster.bam in MEIstro pipeline")
-    parser.add_argument('-i', '--input', metavar='BAM', required=False, help='Input filtered BAM file')
-    parser.add_argument('-S', required=False, action='store_true', help='Input is SAM format')
-    parser.add_argument('-o', required=False, help='Output file')
+    parser = ArgumentParser(
+        formatter_class=RawTextHelpFormatter, add_help=False)
+
+    parser.add_argument('-i', metavar='BAM', 
+                        help='Input BAM (stdin)')
+
+    parser.add_argument('-S', action='store_true', help='Input is SAM format')  
+
+    parser.add_argument('-h','--help', action='help') 
+
 
     # parse the arguments
     args = parser.parse_args()
     
     # bail if no BAM file
-    if args.input is None:
+    if args.i is None:
         if sys.stdin.isatty():
             parser.print_help()
             exit(1)
     
     # send back the user input
     return args
+
 
 # ============================================
 # driver
@@ -172,16 +234,21 @@ def main():
     args = get_args()
 
     #set global clustering parameters
+    global PRECLUSTER_DISTANCE
+    global PAIR_CLUST_DIST
+    global SPLIT_CLUST_DIST
+
     PRECLUSTER_DISTANCE = 1300
-    # PAIR_CLUST_DIST = 
+    PAIR_CLUST_DIST = 300
+    SPLIT_CLUST_DIST = 7
+
     # PAIR_MERGE_DIST = 
     # PAIR_MERGE_OLAP =
 
-    # SPLIT_CLUST_DIST = 
     # SPLIT_MERGE_DIST = 
     # SPLIT_MERGE_OLAP =
 
-    scan(args.input, args.S)
+    scan(args.i, args.S)
 
 if __name__ == "__main__":
     try:
