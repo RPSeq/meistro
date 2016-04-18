@@ -1,3 +1,19 @@
+Skip to content
+This repository
+Search
+Pull requests
+Issues
+Gist
+ @RPSeq
+ Unwatch 1
+  Star 0
+ Fork 0 RPSeq/meistro
+ Code  Issues 0  Pull requests 0  Wiki  Pulse  Graphs  Settings
+Branch: swalign Find file Copy pathmeistro/extract_candidates.py
+29f5edd  a day ago
+@RPSeq RPSeq Try using swalign package for polyA detection
+1 contributor
+RawBlameHistory     478 lines (356 sloc)  13.4 KB
 #!/usr/bin/env python
 
 import sys
@@ -8,7 +24,7 @@ from string import maketrans
 #installed modules
 import pysam
 from intervaltree import IntervalTree
-from ssw_wrap import Aligner
+import swalign
 
 __author__ = "Ryan Smith (ryanpsmith@wustl.edu)"
 __version__ = "$Revision: 0.0.1 $"
@@ -143,19 +159,9 @@ def extract_candidates(bamfile,
 
     fastq_out = open(fastq_out, 'w')    #open fastq output
 
-    batchsize = 1000000
+    batchsize = 5
     anchor_batch = []
     fq_batch = []
-
-    #create striped smith-waterman aligner object
-    #calibrated so gaps are not allowed, only mismatches.
-    polyA_ssw = Aligner("A"*clip_len,
-                match=4,
-                mismatch=8,
-                gap_open=900,
-                gap_extend=600,
-                report_secondary=False,
-                report_cigar=True)
 
     #iterate over the als
     for al in in_bam:
@@ -203,15 +209,14 @@ def extract_candidates(bamfile,
             fq_batch.append(fastq_s)            # append to fq output batch
 
             #pass to polyA function
-            ssw_al = check_polyA(fastq_s.split("\n")[1], polyA_ssw)
+            ssw_al = check_polyA(fastq_s.split("\n")[1])
 
 
             if ssw_al:  #if we got a polyA hit,
                 al_tags = al.opt("TY").split(",")  #get the al's tags
-                cigar, ori = ssw_al                # get the polyA result
-                a_ori = "+"
-                if al.is_reverse:
-                    a_ori = "-"
+                cigar, ori = ssw_al         
+
+                #print cigar, ori       # get the polyA result
 
                 if 'ASL' in al_tags:               #add the SR or SL -polyA tag.
                     pAtag = "SL"
@@ -220,7 +225,7 @@ def extract_candidates(bamfile,
                     pAtag = "SR"
 
                 #generate the new tag and update al.
-                newtag = pAtag+","+"polyA,0,"+cigar+","+a_ori+ori
+                newtag = pAtag+","+"polyA,0,"+cigar+","+ori
                 al.setTag("RA",newtag)
 
         if anchor or is_clip:
@@ -362,33 +367,35 @@ def check_clip(al,
 
     return al, False
 
-def check_polyA(seq, polyA_ssw):
+def check_polyA(q_seq):
 
-    hit_f = polyA_ssw.align(seq, min_score=10, min_len=12)
-    hit_r = polyA_ssw.align(reverse_complement(seq), min_score=10,min_len=12)
-    
-    cutoff = 0.8
-    f_percent = 0
-    r_percent = 0
+    match = 2
+    mismatch = -1
+    q_len = len(q_seq)
+    max_score = float(match*q_len)
+    polyA_ref = "A"*q_len
 
-    if hit_f:
-        f_len = (hit_f.query_end-hit_f.query_begin)+1
-        f_percent = hit_f.score/float(f_len*4)
+    matrix = swalign.NucleotideScoringMatrix(match, mismatch)
+    #default gap penalty=-1, gap_extend=-1, extend_decay=0.0
+    sw = swalign.LocalAlignment(matrix)
 
-    if hit_r:
-        r_len = (hit_r.query_end-hit_r.query_begin)+1
-        r_percent = hit_r.score/float(r_len*4)
-
-    if (f_percent >= cutoff) and (r_percent >= cutoff):
-        if f_percent > r_percent:
-            return hit_f.cigar, "+"
+    #get best forward/reverse al
+    best = None
+    for strand in '+-':
+        if strand == '-':
+            aln = sw.align(polyA_ref, swalign.revcomp(q_seq), rc=True)
         else:
-            return hit_r.cigar, "-"
+            aln = sw.align(polyA_ref, q_seq)
 
-    elif f_percent >= cutoff:
-        return hit_f.cigar, "+"
-    elif r_percent >= cutoff:
-        return hit_r.cigar, "-"
+        if not best or aln.score > best.score:
+            best = aln
+
+    strand = "+"
+    if best.rc:
+        strand = "-"
+
+    if best.score/max_score >= 0.8:
+        return best.cigar_str, strand
 
     return False
 
@@ -484,3 +491,5 @@ if __name__ == "__main__":
 
 
 
+Status API Training Shop Blog About
+© 2016 GitHub, Inc. Terms Privacy Security Contact Help
