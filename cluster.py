@@ -23,26 +23,11 @@ __date__ = "$Date: 2016-2-8 13:45 $"
 
 class Cluster(object):
     def __init__(self, cluster=False):
-        self.anchor_types = ["PR","PL","SR","SL"]
-        self.meis = ["Al", "L1", "SV", "HE"]
-        self.hash = defaultdict(dict)
-        self.polyA_hash = {"SR": [], "SL": []}
+        #mei_family, anchor_type, orientation : anchors
+        self.hash = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
 
-        #create hash structure
-        for mei in self.meis:
-            for side in self.anchor_types:
-                self.hash[mei][side] = {"+-": [], "-+": [],
-                                        "++": [], "--": []}
-
-        for side in self.polyA_hash:
-            self.polyA_hash[side] = {"+-": [], "-+": [],
-                                    "++": [], "--": []}
-        #{
-        #'SV': {'PR': [], 'SR': [], 'PL': [], 'Sl': []}, 
-        #'HE': {'PR': [], 'SR': [], 'PL': [], 'Sl': []}, 
-        #'AL': {'PR': [], 'SR': [], 'PL': [], 'Sl': []}, 
-        #'L1': {'PR': [], 'SR': [], 'PL': [], 'Sl': []}
-        #}
+        #anchor_type, orientation : anchors
+        self.polyA_hash = defaultdict(lambda: defaultdict(list))
 
         #load the anchors into the hash
         if cluster: 
@@ -76,31 +61,29 @@ class Cluster(object):
         for mei_fam, sides in self.hash.iteritems():
             for side, oris in sides.iteritems():
                 for ori, clusts in oris.iteritems():
-                    if clusts:
-                        for clust in clusts:
-                            mei_hit +=1
+                    for clust in clusts:
+                        mei_hit +=1
 
-        for side, clusters in self.polyA_hash.iteritems():
-            for clust in clusters:
-                polyA_hit +=1
+        for side, oris in self.polyA_hash.iteritems():
+            for ori, clusts in oris.iteritems():
+                for clust in clusts:
+                    polyA_hit +=1
 
-        if mei_hit > 5:
+        if mei_hit > 1:
             return True
 
         else:
             return False
 
-                    self.hash[tag.mei[:2]][tagstr].append(anch)
-                else:
-                    self.polyA_hash[tagstr].append(anch)
-
     def generate_sub_clusters(self):
         for mei_fam, sides in self.hash.iteritems():
-            for side, anchs in sides.iteritems():
-                self.hash[mei_fam][side] = self.sub_cluster(anchs, side)
+            for side, oris in sides.iteritems():
+                for ori, anchs in oris.iteritems():
+                    self.hash[mei_fam][side][ori] = self.sub_cluster(anchs, side)
 
-        for side, anchs in self.polyA_hash.iteritems():
-            self.polyA_hash[side] = self.sub_cluster(anchs, side)
+        for side, oris in self.polyA_hash.iteritems():
+            for ori, anchs in oris.iteritems():
+                self.polyA_hash[side][ori] = self.sub_cluster(anchs, side)
 
     def sub_cluster(self, anch_list, side):
 
@@ -156,6 +139,19 @@ class Cluster(object):
         return True
 
 
+    def __str__(self, id_num=False):
+        outstr = ""
+        for mei_fam, sides in self.hash.iteritems():
+            for side, oris in sides.iteritems():
+                for ori, clusters in oris.iteritems():
+                    for clust in clusters:
+                        for anch in clust:
+                            for tag in anch.tags:
+                                if tag.RA_type == side:
+                                    mei = tag.mei
+                            outstr+="\t".join([anch.chrom, str(anch.start), str(anch.end), mei_fam, mei, ori, side, str(id_num)])+"\n"
+        return outstr
+
 class meiTag(object):
     """Encapsulates an mei realignment tag"""
     def __init__(self, tag):
@@ -209,6 +205,9 @@ def scan(bamfile, is_sam):
     for group in cluster_generator(in_bam, PRECLUSTER_DISTANCE):
         count += 1
         clust = Cluster(group)
+        if clust.filter():
+            sys.stdout.write(clust.__str__(count))
+            sys.stdout.write("\n")
 
 def cluster_generator(bamfile, max_dist):
     """Generator function that clusters bam entries and yields a list for each cluster."""
