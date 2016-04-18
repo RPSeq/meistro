@@ -101,7 +101,7 @@ class Cluster(object):
 
             curr = anch
 
-            if not self.check_dist(curr, prev, distance, side):
+            if self.outside(curr, prev, distance, side):
                 clusters.append(curr_clust)
                 curr_clust = [curr]
 
@@ -114,16 +114,16 @@ class Cluster(object):
 
         return clusters
 
-    def check_dist(self, curr, prev, distance, side):
+    def outside(self, curr, prev, distance, side):
         if side == "L":
             if curr.start - prev.start > distance:
-                return False
+                return True
 
         if side == "R":
             if curr.end - prev.end > distance:
-                return False
+                return True
 
-        return True
+        return False
 
 
     def __str__(self, id_num=False):
@@ -134,11 +134,12 @@ class Cluster(object):
                 for ori, clusters in oris.iteritems():
                     for clust in clusters:
                         for anch in clust:
-                            for tag in anch.tags:
-                                if tag.RA_type == side:
-                                    mei = tag.mei
-                                    m_cigar = tag.cigar
-                            outstr+="\t".join([anch.chrom, str(anch.start), str(anch.end), anch.name, mei_fam, mei, ori, side, "clust_"+str(clust_id), str(id_num), anch.cigar, m_cigar])+"\n"
+                            if anch.mapq >= 20:
+                                for tag in anch.tags:
+                                    if tag.RA_type == side:
+                                        mei = tag.mei
+                                        m_cigar = tag.cigar
+                                outstr+="\t".join([anch.chrom, str(anch.start), str(anch.end), str(anch.mapq), anch.name, mei_fam, mei, ori, side, anch.cigar, m_cigar, "clust_"+str(clust_id), str(id_num)])+"\n"
                         clust_id+=1
         return outstr
 
@@ -163,6 +164,7 @@ class anchor(object):
         self.end = int(al.aend)
         self.cigar = al.cigarstring
         self.ori = "+"
+        self.mapq = al.mapq
 
         if al.is_reverse:
             self.ori = "-"
