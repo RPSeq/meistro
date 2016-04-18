@@ -23,6 +23,7 @@ FILE_DIR=$(dirname $INPUT_BAM)
 IA="/gscmnt/gc2719/halllab/users/rsmith/transposons/Mobster/Mobster-0.1.6/mobiome/54_mobiles_inclHERVK"
 #IA="assembly/human_youngTE_revisedPolyA"
 ANN="/gscmnt/gc2719/halllab/users/rsmith/transposons/Mobster/Mobster-0.1.6/MOSAIK"
+#ANN="/Users/rsmith/MOSAIK"
 REPMASK="/gscmnt/gc2719/halllab/users/rsmith/git/meistro/repmask/nchr.SLOP90.repmask_hg19_Alu.L1.SVA.ERV.bed"
 
 ##Set output directory
