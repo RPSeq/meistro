@@ -25,17 +25,33 @@ class Cluster(object):
     def __init__(self, cluster=False):
         #mei_family, anchor_type, orientation : anchors
         self.hash = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+        self.ev_count = 0
+        self.polyA_count = 0
+        self.mei_count = 0
+
+        self.split_conc_oris = {"+-":"+--+", "-+":"+--+", 
+                                "++":"++--","--":"++--"}
 
         #load the anchors into the hash
         if cluster: 
             self.load(cluster)
             self.generate_sub_clusters()
 
+
     def load(self, cluster):
         for anch in cluster:
             for tag in anch.tags:
+                self.ev_count += 1
+                if tag.mei == "polyA":
+                    self.polyA_count += 1
+                else:
+                    self.mei_count += 1
+                ori = tag.ori
+                if tag.RA_type[0] == "S":
+                    ori = self.split_conc_oris[ori]
+
                 #for now, the mei_refname's first two chars are the mei_family hash keys
-                self.hash[tag.mei[:2]][tag.RA_type][tag.ori].append(anch)
+                self.hash[tag.mei[:2]][tag.RA_type][ori].append(anch)
 
 
     def generate_sub_clusters(self):
@@ -43,31 +59,14 @@ class Cluster(object):
             for side, oris in sides.iteritems():
                 for ori, anchs in oris.iteritems():
                     self.hash[mei_fam][side][ori] = self.sub_cluster(anchs, side)
+
 
     def filter(self):
         """Define filter for clusters"""
-        mei_hit = 0
-        polyA_hit = 0
-        for mei_fam, sides in self.hash.iteritems():
-            for side, oris in sides.iteritems():
-                for ori, clusts in oris.iteritems():
-                    for clust in clusts:
-                        if mei_fam == "po":
-                            polyA_hit += 1
-                        else:
-                            mei_hit += 1
-
-        if mei_hit > 1:
+        if self.mei_count > 2:
             return True
+        return False
 
-        else:
-            return False
-
-    def generate_sub_clusters(self):
-        for mei_fam, sides in self.hash.iteritems():
-            for side, oris in sides.iteritems():
-                for ori, anchs in oris.iteritems():
-                    self.hash[mei_fam][side][ori] = self.sub_cluster(anchs, side)
 
     def sub_cluster(self, anch_list, side):
 
@@ -87,9 +86,9 @@ class Cluster(object):
         elif read_type == "P":
             dist = PAIR_CLUST_DIST
 
-        return self.clust(anch_list, dist, read_side)
+        return self.subclust_gen(anch_list, dist, read_side)
 
-    def clust(self, clust, distance, side):
+    def subclust_gen(self, clust, distance, side):
         clusters = []
         prev = None
 
@@ -134,12 +133,24 @@ class Cluster(object):
                 for ori, clusters in oris.iteritems():
                     for clust in clusters:
                         for anch in clust:
-                            if anch.mapq >= 20:
-                                for tag in anch.tags:
-                                    if tag.RA_type == side:
-                                        mei = tag.mei
-                                        m_cigar = tag.cigar
-                                outstr+="\t".join([anch.chrom, str(anch.start), str(anch.end), str(anch.mapq), anch.name, mei_fam, mei, ori, side, anch.cigar, m_cigar, "clust_"+str(clust_id), str(id_num)])+"\n"
+                            for tag in anch.tags:
+                                if tag.RA_type == side:
+                                    mei = tag.mei
+                                    m_cigar = tag.cigar
+                                    m_ori = tag.ori
+                            outstr+="\t".join([anch.chrom, 
+                                            str(anch.start), 
+                                            str(anch.end), 
+                                            str(anch.mapq), 
+                                            anch.name, 
+                                            mei_fam, 
+                                            mei, 
+                                            m_ori, 
+                                            side, 
+                                            anch.cigar, 
+                                            m_cigar, 
+                                            "clust_"+str(clust_id), 
+                                            str(id_num)])+"\n"
                         clust_id+=1
         return outstr
 
@@ -173,7 +184,8 @@ class anchor(object):
             self.tag_str = al.opt("RA")
             self.tags = [meiTag(tag) for tag in self.tag_str.split(";")]
         except:
-            sys.stderr.write("cluster.py Error: Reads must have RA tags added from filter_merged.py\n")
+            sys.stderr.write("cluster.py Error: Reads must have RA \
+                                tags added from filter_merged.py\n")
             exit(1)
 #####################################################################
 #####################################################################
@@ -197,12 +209,13 @@ def scan(bamfile, is_sam):
     for group in cluster_generator(in_bam, PRECLUSTER_DISTANCE):
         count += 1
         clust = Cluster(group)
-        if clust.filter():
+        if clust.filter():  
             sys.stdout.write(clust.__str__(count))
             sys.stdout.write("\n")
 
 def cluster_generator(bamfile, max_dist):
-    """Generator function that clusters bam entries and yields a list for each cluster."""
+    """Generator function that clusters \
+    bam entries and yields a list for each cluster."""
 
     prev = anchor(bamfile.next(), bamfile)  #grab first alignment
     cluster = [prev]    #initialize first cluster
@@ -210,11 +223,11 @@ def cluster_generator(bamfile, max_dist):
     for al in bamfile:
 
         curr = anchor(al, bamfile)
-        #if the cluster range is exceeded, yield current clust and initialize next cluster
+        #if the cluster range is exceeded:
         if (curr.start - prev.end > max_dist) or curr.chrom != prev.chrom:
 
-            yield cluster
-            cluster = [curr]
+            yield cluster       #yield current clust
+            cluster = [curr]    #initialize next clust
 
         else:
             #otherwise append to cluster
@@ -271,7 +284,9 @@ def main():
     PAIR_CLUST_DIST = 300
     SPLIT_CLUST_DIST = 7
 
-    # PAIR_MERGE_DIST = 
+    global PAIR_MERGE_DIST
+
+    PAIR_MERGE_DIST = 800
     # PAIR_MERGE_OLAP =
 
     # SPLIT_MERGE_DIST = 
