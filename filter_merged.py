@@ -7,6 +7,7 @@ from argparse import RawTextHelpFormatter
 import string
 from string import *
 from collections import defaultdict
+from copy import copy
 
 __author__ = "Ryan Smith (ryanpsmith@wustl.edu)"
 __version__ = "$Revision: 0.0.1 $"
@@ -101,7 +102,7 @@ class Namegroup(object):
         self.anchors = []
         self.meis = []
         self.mei_rnames = mei_names
-        self.uu_mei = [False, False]
+        self.uu_mei = [False, False]    #did read 1 or read 2 realign to MEI, or both?
         self.filtered_anchors = []
 
         if al:
@@ -124,7 +125,7 @@ class Namegroup(object):
         self.als.append(al)
         return True
 
-    def update_RA(self, RAtag, mei, anchor):
+    def update_RA(self, RAtags, mei, anchor):
 
         ori = "+"
         if mei.is_reverse:
@@ -135,12 +136,10 @@ class Namegroup(object):
             a_ori = "-"
 
         try:
-            # DON"T WORRY: anchors can have 2 items in their TY tags,
-            # but any single MEI realignment can only have one TY tag. 
-            # (if an anchor has two TY tags, it could have two mei reals, each with one TY tag.)
             RA_type = mei.opt("TY")
         except:
-            sys.stderr.write("Reads must have TY tags; make sure the input .bam was processed by extract_candidates.py")
+            sys.stderr.write("Reads must have TY tags; these are added by extract_candidates.py")
+            exit(1)
 
         #set pair direction tag based on anchor ori. now these will match the split tags.
         if RA_type == "UU" or RA_type == "RU":
@@ -148,22 +147,20 @@ class Namegroup(object):
             if anchor.is_reverse:
                 RA_type = "PL"
 
-        if not RAtag:
-            RAtag = RA_type+","+",".join([self.bam.getrname(mei.rname), 
-                                                str(mei.pos), 
-                                                mei.cigarstring, 
-                                                a_ori+ori])
+        if not RAtags:
+            RAtags.append(RA_type+","+",".join([self.bam.getrname(mei.rname), str(mei.pos), mei.cigarstring, a_ori+ori]))
+
         else:
             #when we use the Mobster Mosaik moblist ref, L1HS has a polyA tail starting at 6017 bp.
             # this seems to "soak up" a lot of actual polyA sequences, so lets just ignore it for now
-            # and see if the SSW check_polyA function works properly.
-            if "polyA" in RAtag:
+            #ideal solution: trim polyA seqs from references. and stop doing this test
+            if "polyA" in RAtags[0]:
                 if self.bam.getrname(mei.rname) == "L1HS" and mei.pos >= 6000:
-                    return RAtag
+                    return RAtags
                     
-            RAtag += ";" + RA_type+","+",".join([self.bam.getrname(mei.rname), str(mei.pos), mei.cigarstring, a_ori+ori])
+            RAtags.append(RA_type+","+",".join([self.bam.getrname(mei.rname), str(mei.pos), mei.cigarstring, a_ori+ori]))
 
-        return RAtag
+        return RAtags
 
     def process(self):
         """Returns true if group hit an MEI"""
@@ -177,6 +174,7 @@ class Namegroup(object):
             #some untig als have non-spec rname indices
             if al.rname < 0:
                 continue
+
             if not al.is_secondary: #ignore secondary hits for now
                 if self.bam.getrname(al.rname) in self.mei_rnames:
                     self.meis.append(al)
@@ -194,9 +192,9 @@ class Namegroup(object):
             uu_hit = False
             try:
                 #account for the polyA RA tag that already exists if this readgroup aliged to polyA.
-                RAtag = anchor.opt("RA")
+                RAtags = [anchor.opt("RA")]
             except:
-                RAtag = False
+                RAtags = []
 
             anum = int(anchor.qname.split("_")[1])
             #if anchor is a UU only
@@ -213,16 +211,12 @@ class Namegroup(object):
                         #if its the mate of the UU, report it and add the new tag.
                         if mnum != anum:
                             uu_hit = True
-                            RAtag = self.update_RA(RAtag, mei, anchor)
+                            RAtags = self.update_RA(RAtags, mei, anchor)
                             break
 
                 if not uu_hit:
                     #delete the UU tag if there are other tags, no longer relevant
                     if len(tags) > 1:
-                        #this only works because read pairs are ALWAYS checked before clippers
-                        #in extract_candidates. thus, if a read is a split and a UU, the UU tag will come first.
-                        #SHIT NOW, polyA hits of UUs MAY be deleted! what do I do about this? (think i fixed it.)
-                        #del tags[0]
                         for i in range(len(tags)):
                             if tags[i] == "UU":
                                 del tags[i]
@@ -233,7 +227,7 @@ class Namegroup(object):
                     if mei.opt("TY") == "RU":
                         mnum = int(mei.qname.split("_")[1])
                         if mnum != anum:
-                            RAtag = self.update_RA(RAtag, mei, anchor)
+                            RAtags = self.update_RA(RAtags, mei, anchor)
                             break
 
             if 'ASL' in tags:
@@ -242,23 +236,24 @@ class Namegroup(object):
                     if mei.opt("TY") == 'SL':
                         mnum = int(mei.qname.split("_")[1])
                         if mnum == anum:
-                            RAtag = self.update_RA(RAtag, mei, anchor)
+                            RAtags = self.update_RA(RAtags, mei, anchor)
                             break
 
-            elif 'ASR' in tags:
+            if 'ASR' in tags:
                 for mei in self.meis:
                     if mei.opt("TY") == 'SR':
                         mnum = int(mei.qname.split("_")[1])
                         if mnum == anum:
-                            RAtag = self.update_RA(RAtag, mei, anchor)
+                            RAtags = self.update_RA(RAtags, mei, anchor)
                             break
 
-            if RAtag:
-                #don't add to output if ONLY polyA signal (these will be in a separate file)
-                # if len(RAtag.split(";")) == 1 and RAtag.split(",")[1] == "polyA":
-                #     break
-                anchor.setTag("RA", RAtag)
-                self.filtered_anchors.append(anchor)
+            if RAtags: 
+                out_anchs = []
+                for tag in RAtags:
+                    temp = copy(anchor)
+                    temp.setTag("RA", tag)
+                    out_anchs.append(temp)
+                self.filtered_anchors.extend(out_anchs)
 
         if len(self.filtered_anchors) > 0:
             return self.filtered_anchors
