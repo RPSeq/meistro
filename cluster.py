@@ -39,22 +39,21 @@ class Cluster(object):
     def collect(self, anchors):
         for anch in anchors:
 
-            for tag in anch.tags:
-                self.ev_count += 1
+            self.ev_count += 1
 
-                if tag.mei == "polyA":
-                    self.polyA_count += 1
+            if anch.tag.mei == "polyA":
+                self.polyA_count += 1
 
-                else:
-                    self.mei_count += 1
+            else:
+                self.mei_count += 1
 
-                ori = tag.ori
+            ori = anch.tag.ori
 
-                if tag.RA_type[0] == "S":
-                    ori = self.split_conc_oris[ori]
+            if anch.tag.RA_type[0] == "S":
+                ori = self.split_conc_oris[ori]
 
-                #for now, the mei_refname's first two chars are the mei_family hash keys
-                self.collector[tag.mei[:2]][tag.RA_type][ori].append(anch)
+            #for now, the mei_refname's first two chars are the mei_family hash keys
+            self.collector[anch.tag.mei[:2]][anch.tag.RA_type][ori].append(anch)
 
 
     def load_sub_clusters(self):
@@ -262,11 +261,15 @@ class Anchor(object):
         #load mei_tags for an anchor
         try:
             self.tag_str = al.opt("RA")
-            self.tags = [MeiTag(tag) for tag in self.tag_str.split(";")]
+            self.tag = MeiTag(self.tag_str)
         except:
             sys.stderr.write("cluster.py Error: Reads must have RA \
-                                tags added from filter_merged.py\n")
+                                tag added from filter_merged.py\n")
             exit(1)
+
+        if len(self.tag_str.split(";")) > 1:
+            sys.stderr.write("cluster.py Error: Multiple RA tags found for anchor")
+            sys.exit(1)
 
 
 def scan(bamfile, is_sam):
