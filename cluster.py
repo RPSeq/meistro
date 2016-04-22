@@ -3,14 +3,15 @@ import sys
 from argparse import RawTextHelpFormatter, ArgumentParser
 from collections import defaultdict
 
+
 __author__ = "Ryan Smith (ryanpsmith@wustl.edu)"
 __version__ = "$Revision: 0.0.1 $"
 __date__ = "$Date: 2016-2-8 13:45 $"
 
+
 # here i define a new convention: + paired anchors are R, as the MEI segment is on the RIGHT from the anchor segment.
 # and thus, - paired anchors are L, as the MEI segment is on the LEFT relative to the anchor.
 # now, as long as the orientations for a cluster are concordant, (+-,++) are PR and (-+, --) are PL.
-
 class Cluster(object):
     def __init__(self, cluster):
         #mei_family, 
@@ -34,8 +35,9 @@ class Cluster(object):
         #group them into subclusters
         self.load_sub_clusters()
 
-    def collect(self, cluster):
-        for anch in cluster:
+
+    def collect(self, anchors):
+        for anch in anchors:
 
             for tag in anch.tags:
                 self.ev_count += 1
@@ -54,6 +56,7 @@ class Cluster(object):
                 #for now, the mei_refname's first two chars are the mei_family hash keys
                 self.collector[tag.mei[:2]][tag.RA_type][ori].append(anch)
 
+
     def load_sub_clusters(self):
         #traverse the collector, generating subclusters as we go
         #need to load this info into better data structure now
@@ -62,11 +65,10 @@ class Cluster(object):
             for side, oris in sides.iteritems():
 
                 for ori, anchs in oris.iteritems():
-                    self.collector[mei_fam][side][ori] = self.gen_subclusters(anchs, side, ori)
+                    self.collector[mei_fam][side][ori] = self.gen_subclusters(anchs, side, ori, mei_fam)
 
 
-
-    def gen_subclusters(self, clust, side, ori):
+    def gen_subclusters(self, clust, side, ori, mei_fam):
         """Generate subclusters from a list of anchors"""
 
         #sort anchors by end pos if MEI on right.
@@ -81,14 +83,14 @@ class Cluster(object):
 
             if not prev:
                 prev = anch
-                curr_clust = SubCluster(prev, side, ori)
+                curr_clust = SubCluster(prev, side, ori, mei_fam)
                 continue
 
             curr = anch
 
-            if not curr_clust.add(prev, side):
+            if not curr_clust.add(prev, side, mei_fam):
                 clusters.append(curr_clust)
-                curr_clust = SubCluster(curr, side, ori)
+                curr_clust = SubCluster(curr, side, ori, mei_fam)
 
             prev = curr
 
@@ -105,14 +107,23 @@ class Cluster(object):
 
         return False
 
-class MergedCluster(object):
-    def __init__(self, ClusterA, ClusterB, dist):
 
-        if ClusterA.dir == ClusterB.dir or ClusterA.dir:
-            sys.stderr.write("Error: Clusters to merge have same side (L/R")
+class MergedCluster(object):
+    def __init__(self, SubClusterA, SubClusterB, dist):
+
+        side = SubClusterA.dir
+        self.r_type == ClusterA.r_type
+
+        if SubClusterA.dir == SubClusterB.dir:
+            sys.stderr.write("MergedCluster Error: \
+                SubClusters to merge have same side (L/R)")
             exit(1)
 
-        side = ClusterA.side
+        if SubClusterA.r_type != SubClusterB.r_type:
+            sys.stderr.write("MergedCluster Error: \
+                SubClusters to merge have different read type (S/R)")
+            exit(1)
+
         if side == "L":
             self.L_Cluster = Cluster.A
             self.R_Cluster = Cluster.B
@@ -121,16 +132,15 @@ class MergedCluster(object):
             self.R_Cluster = Cluster.A
             self.L_Cluster = Cluster.B
 
-        self.r_type == ClusterA.r_type
         self.dist = dist
 
     # def get_tsd(self)
 
 class SubCluster(object):
-    def __init__(self, Cluster, anchor, side, ori):
-        self.cluster = Cluster
+    def __init__(self, anchor, side, ori, mei_fam):
         self.anchors = [anchor]
         self.side = side
+        self.mei_fam = mei_fam
         self.read_type = side[0]
         self.dir = side[1]
         self.ori = ori
@@ -143,18 +153,19 @@ class SubCluster(object):
         self.start = pos
         self.end = pos
 
-        if self.r_type == "S":
+        if self.read_type == "S":
             self.clust_dist = SPLIT_MERGE_DIST
             self.merge_dist = SPLIT_MERGE_OLAP
             self.merge_olap = SPLIT_CLUST_DIST
 
-        elif self.r_type == "P":
+        elif self.read_type == "P":
             self.clust_dist = PAIR_MERGE_DIST
             self.merge_dist = PAIR_MERGE_OLAP
-            self.merge_olap = PAIR_CLUST_DIS
+            self.merge_olap = PAIR_CLUST_DIST
 
-    def add(self, anchor, side):
-        if self.side != side:
+
+    def add(self, anchor, side, mei_fam):
+        if self.side != side or self.mei_fam != mei_fam:
             return False
 
         a_pos = self.get_a_pos(anchor)
@@ -167,6 +178,7 @@ class SubCluster(object):
             self.end = a_pos
             return True
 
+
     def get_a_pos(self, anchor):
 
         a_pos = anchor.end
@@ -175,18 +187,14 @@ class SubCluster(object):
 
         return a_pos
 
-    # def get_ori(self):
-    #     anch = self.anchors[0]
-    #     for tag in anch.tags:
-    #         if tag.RA_type == self.side:
-    #             return tag.ori
 
     def clust_pos(self):
-        """Returns cluster coord from appropriate R or L side"""
+        """Returns cluster coordinate"""
 
         if self.dir == "R":   return self.end
 
         elif self.dir == "L": return self.start
+
 
     def clust_dist(self, cluster):
         """Returns the distance between two SubClusters"""
@@ -197,13 +205,16 @@ class SubCluster(object):
         elif self.dir == "L":
             return self.clust_pos - cluster.clust_pos()
 
+
     def merge(self, cluster):
         """Returns False, False if discordant, 
         False, dist if too far/excess olap,
         and True, MergedCluster object if can be merged."""
 
         #not concordant for merging
-        if self.dir == cluster.dir or self.read_type != cluster.read_type:
+        if self.dir == cluster.dir or \
+        self.read_type != cluster.read_type or \
+        self.mei_fam != cluster.mei_fam:
             return False, False
 
         #get distance between inside ends
@@ -222,10 +233,7 @@ class SubCluster(object):
             return True, MergedCluster(self, cluster, dist)
 
 
-
-
-
-class meiTag(object):
+class MeiTag(object):
     """Encapsulates an mei realignment tag"""
     def __init__(self, tag):
         tag = tag.split(",")
@@ -235,7 +243,8 @@ class meiTag(object):
         self.cigar = tag[3]
         self.ori = tag[4]
 
-class anchor(object):
+
+class Anchor(object):
     """Encapsulates an mei realignment anchor"""
     def __init__(self, al, al_bam):
         self.al = al
@@ -253,13 +262,12 @@ class anchor(object):
         #load mei_tags for an anchor
         try:
             self.tag_str = al.opt("RA")
-            self.tags = [meiTag(tag) for tag in self.tag_str.split(";")]
+            self.tags = [MeiTag(tag) for tag in self.tag_str.split(";")]
         except:
             sys.stderr.write("cluster.py Error: Reads must have RA \
                                 tags added from filter_merged.py\n")
             exit(1)
-#####################################################################
-#####################################################################
+
 
 def scan(bamfile, is_sam):
     """Main BAM parsing loop"""
@@ -289,12 +297,12 @@ def cluster_generator(bamfile, max_dist):
     """Generator function that clusters \
     bam entries and yields a list for each cluster."""
 
-    prev = anchor(bamfile.next(), bamfile)  #grab first alignment
+    prev = Anchor(bamfile.next(), bamfile)  #grab first alignment
     cluster = [prev]    #initialize first cluster
 
     for al in bamfile:
 
-        curr = anchor(al, bamfile)
+        curr = Anchor(al, bamfile)
         #if the cluster range is exceeded:
         if (curr.start - prev.end > max_dist) or curr.chrom != prev.chrom:
 
@@ -317,7 +325,8 @@ def get_args():
     parser.add_argument('-i', metavar='BAM', 
                         help='Input BAM (stdin)')
 
-    parser.add_argument('-S', action='store_true', help='Input is SAM format')  
+    parser.add_argument('-S', action='store_true', 
+                        help='Input is SAM format')  
 
     parser.add_argument('-h','--help', action='help') 
 
@@ -362,7 +371,7 @@ def main():
     #   measured from rightmost-base if upstream of MEI (PR/SR)
     #   leftmost-base if downstream of MEI (PL/SL)
     PAIR_CLUST_DIST = 400
-    SPLIT_CLUST_DIST = 7
+    SPLIT_CLUST_DIST = 8
 
     #   how close do concordant sub-clusters need to be to be merged?
     #   what is the max overlap for merging pair clusters? 
@@ -374,9 +383,6 @@ def main():
 
     SPLIT_MERGE_DIST = 20
     SPLIT_MERGE_OLAP = 60
-
-
-
 
     scan(args.i, args.S)
 
