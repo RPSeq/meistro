@@ -76,7 +76,7 @@ class Cluster(object):
         #(incoming reads are sorted by start pos)
         if RA_tag[1] == "R":
             #sort anchors by end position
-            clust.sort(key=lambda x: (x.end, x.ori))
+            clust.sort(key=lambda x: x.end)
 
         clusters = []
         prev = None
@@ -110,44 +110,16 @@ class Cluster(object):
         return False
 
 
-class DoubleCluster(object):
+class MergedCluster(object):
 
-    def __init__(self, SubClusterA, SubClusterB, dist):
-
-        side = SubClusterA.side
-        self.read_type == SubClusterA.read_type
-
-        if SubClusterA.side == SubClusterB.side:
-            sys.stderr.write("MergedCluster Error: \
-                SubClusters to merge have same side (L/R)")
-            exit(1)
-
-        if SubClusterA.read_type != SubClusterB.read_type:
-            sys.stderr.write("MergedCluster Error: \
-                SubClusters to merge have different read type (S/R)")
-            exit(1)
-
-        if self.read_type == "P":
-            if SubClusterA.cluster.pair_conc[SubClusterA.ori] == SubClusterB.ori:
-                return False
-
-        if self.read_type == "S":
-            if SubClusterA.ori != SubClusterB.ori:
-                return False
-
-        if side == "L":
-            self.L_Cluster = SubClusterA
-            self.R_Cluster = SubClusterB
-
-        elif side == "R":
-            self.R_Cluster = SubClusterA
-            self.L_Cluster = SubClusterB
-
-        self.dist = dist
-        self.clust_type == self.read_type
-
-    def add(self, clust):
-    # def get_tsd(self)
+    def __init__(self, SubCluster):
+        self.me_fam = False
+        self.PR = False
+        self.PL = False
+        self.SR = False
+        self.SL = False
+        self.PA = False
+        self.oris = {"SR":False, "SL":False, "PR":False, "PL":False}
 
 class SubCluster(object):
 
@@ -221,28 +193,32 @@ class SubCluster(object):
         elif self.read_type == "P" and self.cluster.pair_conc[subcluster.ori] == self.ori:
             return True
 
-
-    def merge(self, subcluster):
+    def concordant(self, subcluster):
         """Returns False, False if discordant, 
-        False, dist if too far/excess olap,
-        and True, DoubleCluster object if can be merged."""
+        False, dist if too far/excess olap"""
 
         #not concordant for merging
-        if self.side == cluster.side or \
-        self.read_type != cluster.read_type or \
-        self.me_fam != cluster.me_fam or \
-        not self.ori_concordant(cluster):
+        if not self.ori_concordant(subcluster) or (self.read_type == subcluster.read_type and self.side == subcluster.side):
             return False, False
+
+        #get distance params
+        olap = self.MERGE_OLAP
+        m_dist = self.MERGE_DIST
+
+        if self.read_type != subcluster.read_type:
+            if subcluster.read_type == "P":         #use the pair params if both
+                olap = subcluster.MERGE_OLAP
+                m_dist = subcluster.MERGE_DIST
 
         #get distance between inside ends
         dist = self.distance(cluster)
 
         #too much overlap or too far:
-        if dist < (0-self.MERGE_OLAP) or dist > self.MERGE_DIST:
+        if dist < (0-olap) or dist > m_dist:
             return False, dist
 
         else:
-            return True, DoubleCluster(self, cluster, dist)
+            return True, dist
 
 
 class Anchor(object):
